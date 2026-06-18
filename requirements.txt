@@ -1,5 +1,5 @@
-# UI
-gradio==4.44.0
+# UI — 5.x required for Python 3.13 (audioop removed from stdlib)
+gradio>=5.0.0
 
 # ML — torch 2.5+ required for Python 3.13 (HF Spaces default)
 torch>=2.5.0
