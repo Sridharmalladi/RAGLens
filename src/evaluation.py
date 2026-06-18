@@ -1,55 +1,50 @@
 """
-RAGAS scoring via Groq as the judge LLM.
-Returns faithfulness, answer_relevancy, context_precision.
-If GROQ_API_KEY is missing or the call fails, returns None scores — never fake zeros.
+LLM-as-judge scoring via Groq API (llama-3.1-8b-instant).
+Three structured prompts cover the same axes as RAGAS:
+  faithfulness, answer_relevancy, context_precision.
+No external eval frameworks — just the groq SDK already in requirements.
 """
 
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
 _ragas_ready: bool | None = None  # None = unchecked
 
 
-def _check_ragas_available() -> bool:
+def _check_available() -> bool:
     global _ragas_ready
     if _ragas_ready is not None:
         return _ragas_ready
-
-    if not os.environ.get("GROQ_API_KEY"):
-        logger.warning("GROQ_API_KEY not set — RAGAS scoring disabled")
-        _ragas_ready = False
-        return False
-
-    try:
-        import ragas  # noqa: F401
-        from langchain_groq import ChatGroq  # noqa: F401
-        _ragas_ready = True
-    except ImportError as e:
-        logger.warning("RAGAS dependencies not installed: %s — scoring disabled", e)
-        _ragas_ready = False
-
+    _ragas_ready = bool(os.environ.get("GROQ_API_KEY"))
+    if not _ragas_ready:
+        logger.warning("GROQ_API_KEY not set — scoring disabled")
     return _ragas_ready
 
 
-def _build_ragas_llm():
-    from langchain_groq import ChatGroq
-    from ragas.llms import LangchainLLMWrapper
-    from config import JUDGE_MODEL
+def _ask(prompt: str) -> float | None:
+    """One Groq call. Returns a float in [0, 1] or None on failure."""
+    try:
+        from groq import Groq
+        from config import JUDGE_MODEL
 
-    groq_llm = ChatGroq(
-        model=JUDGE_MODEL,
-        api_key=os.environ["GROQ_API_KEY"],
-        temperature=0,
-    )
-    return LangchainLLMWrapper(groq_llm)
-
-
-def _build_ragas_embeddings():
-    from ragas.embeddings import HuggingfaceEmbeddings
-    from config import EMBEDDING_MODEL
-    return HuggingfaceEmbeddings(model_name=EMBEDDING_MODEL)
+        client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        resp = client.chat.completions.create(
+            model=JUDGE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=10,
+        )
+        text = resp.choices[0].message.content.strip()
+        match = re.search(r"1\.0|0\.\d+|[01]", text)
+        if match:
+            val = float(match.group())
+            return round(min(max(val, 0.0), 1.0), 4)
+    except Exception as e:
+        logger.warning("Groq scoring call failed: %s", e)
+    return None
 
 
 def score(
@@ -59,62 +54,48 @@ def score(
     ground_truth: str | None = None,
 ) -> dict:
     """
-    Score a single RAG result with RAGAS.
-    Returns {faithfulness, answer_relevancy, context_precision} as floats in [0, 1],
-    or {faithfulness: None, ...} if scoring is unavailable.
+    Score one RAG result.
+    Returns {faithfulness, answer_relevancy, context_precision} in [0, 1],
+    or all-None if scoring is unavailable or inputs are empty.
     """
-    null_scores = {"faithfulness": None, "answer_relevancy": None, "context_precision": None}
+    null = {"faithfulness": None, "answer_relevancy": None, "context_precision": None}
 
-    if not _check_ragas_available():
-        return null_scores
+    if not _check_available() or not answer or not contexts:
+        return null
 
-    if not answer or not contexts:
-        return null_scores
+    ctx = "\n\n".join(f"[{i+1}] {c}" for i, c in enumerate(contexts[:3]))
 
-    try:
-        from datasets import Dataset
-        from ragas import evaluate
-        from ragas.metrics import faithfulness, answer_relevancy, context_precision
+    faithfulness = _ask(
+        f"Context:\n{ctx}\n\n"
+        f"Answer: {answer}\n\n"
+        "Rate FAITHFULNESS (0.0–1.0): does the answer use ONLY information "
+        "from the context, without adding facts not found there? "
+        "1.0 = fully grounded in context, 0.0 = hallucinated. "
+        "Reply with a single decimal number only."
+    )
 
-        ragas_llm = _build_ragas_llm()
-        ragas_emb = _build_ragas_embeddings()
+    relevancy = _ask(
+        f"Question: {query}\n\n"
+        f"Answer: {answer}\n\n"
+        "Rate ANSWER RELEVANCY (0.0–1.0): how well does the answer address "
+        "the question? 1.0 = perfectly on-topic, 0.0 = completely off-topic. "
+        "Reply with a single decimal number only."
+    )
 
-        # Wire judge LLM and embeddings into each metric
-        faithfulness.llm = ragas_llm
-        answer_relevancy.llm = ragas_llm
-        answer_relevancy.embeddings = ragas_emb
-        context_precision.llm = ragas_llm
+    precision = _ask(
+        f"Question: {query}\n\n"
+        f"Retrieved context:\n{ctx}\n\n"
+        "Rate CONTEXT PRECISION (0.0–1.0): how useful is this retrieved "
+        "context for answering the question? 1.0 = highly relevant, "
+        "0.0 = useless noise. Reply with a single decimal number only."
+    )
 
-        data: dict = {
-            "question": [query],
-            "answer": [answer],
-            "contexts": [contexts],
-        }
-        if ground_truth:
-            data["ground_truth"] = [ground_truth]
-
-        dataset = Dataset.from_dict(data)
-        metrics = [faithfulness, answer_relevancy, context_precision]
-        result = evaluate(dataset, metrics=metrics)
-
-        return {
-            "faithfulness": _safe_float(result.get("faithfulness")),
-            "answer_relevancy": _safe_float(result.get("answer_relevancy")),
-            "context_precision": _safe_float(result.get("context_precision")),
-        }
-
-    except Exception as e:
-        logger.error("RAGAS scoring failed: %s", e)
-        return null_scores
-
-
-def _safe_float(value) -> float | None:
-    try:
-        v = float(value)
-        return round(v, 4) if 0.0 <= v <= 1.0 else None
-    except (TypeError, ValueError):
-        return None
+    return {
+        "faithfulness": faithfulness,
+        "answer_relevancy": relevancy,
+        "context_precision": precision,
+    }
 
 
 def scoring_available() -> bool:
-    return _check_ragas_available()
+    return _check_available()

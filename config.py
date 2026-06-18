@@ -31,7 +31,7 @@ DB_PATH = os.environ.get("DB_PATH", "raglens.db")
 # Generation — conservative for CPU inference
 MAX_NEW_TOKENS = 256
 TEMPERATURE = 0.7
-GENERATION_TIMEOUT_SECONDS = 45
+GENERATION_TIMEOUT_SECONDS = 600  # 10 min — covers cold-start model download on HF Spaces
 
 # Evaluation — Groq free tier (14,400 req/day; monitoring uses ~288/day)
 JUDGE_MODEL = "llama-3.1-8b-instant"

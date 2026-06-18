@@ -6,6 +6,7 @@ PEFT adapter applied on top of FT_BASE_MODEL for configs 3 & 4.
 
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Cache: {model_id: (model, tokenizer)}
 _cache: dict[str, tuple] = {}
+_cache_lock = threading.Lock()  # prevents double-load when preload + user query race
 _ft_model_cache: tuple | None = None  # (peft_model, tokenizer) for FT configs
 _executor = ThreadPoolExecutor(max_workers=1)
 
@@ -74,13 +76,15 @@ def _load_ft_model() -> tuple | None:
 
 def get_model(model_id: str) -> tuple:
     """Return (model, tokenizer), loading and caching on first call."""
-    if model_id not in _cache:
-        if len(_cache) >= 2:
-            # Evict the oldest entry to stay within memory budget
-            oldest = next(iter(_cache))
-            del _cache[oldest]
-            logger.info("Evicted %s from model cache", oldest)
-        _cache[model_id] = _load_base(model_id)
+    if model_id in _cache:
+        return _cache[model_id]
+    with _cache_lock:
+        if model_id not in _cache:  # re-check after acquiring lock
+            if len(_cache) >= 2:
+                oldest = next(iter(_cache))
+                del _cache[oldest]
+                logger.info("Evicted %s from model cache", oldest)
+            _cache[model_id] = _load_base(model_id)
     return _cache[model_id]
 
 

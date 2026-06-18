@@ -25,12 +25,26 @@ from config import (
 # Startup
 # ---------------------------------------------------------------------------
 
+def _warmup_default_model():
+    """Download + load the default model in the background so the first user query is fast."""
+    try:
+        from src.models import get_model
+        from config import DEFAULT_MODEL
+        logger.info("Warming up %s in background...", DEFAULT_MODEL)
+        get_model(DEFAULT_MODEL)
+        logger.info("Model warmup complete: %s", DEFAULT_MODEL)
+    except Exception as e:
+        logger.warning("Model warmup failed (non-fatal): %s", e)
+
+
 def _startup():
+    import threading
     from src.storage import init_db
     from src.scheduler import start as start_scheduler
 
     init_db()
     start_scheduler()
+    threading.Thread(target=_warmup_default_model, daemon=True).start()
     logger.info("RAGLens started")
 
 _startup()
@@ -233,10 +247,14 @@ with gr.Blocks(title=APP_TITLE, theme=gr.themes.Soft(), css=CSS) as demo:
     <div class="raglens-header">
         <h1>🔍 {APP_TITLE}</h1>
         <p style="color:#9CA3AF">
-            4 RAG configurations · Live RAGAS scoring · 7-day monitoring dashboard<br>
+            4 RAG configurations · LLM-as-judge scoring · 7-day monitoring dashboard<br>
             Corpus: {CORPUS_DESCRIPTION} · Evaluation judge: Groq llama-3.1-8b-instant (free tier)<br>
             <small>Built by <strong>Sridhar Malladi</strong> ·
             RAGLens runs on free-tier infrastructure — architecture over compute.</small>
+        </p>
+        <p style="color:#6B7280;font-size:0.8rem">
+            ⚡ First query downloads ~3 GB of model weights — expect 3–5 min on cold start.
+            Subsequent queries are fast.
         </p>
     </div>
     """)
