@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Env
+.env
+
+# Runtime DB — created automatically at startup
+raglens.db
+
+# Raw PDFs — not needed in the repo (corpus is the built index + chunks)
+corpus/raw/*.pdf
+
+# Model cache (HF downloads models at runtime)
+.cache/
+*.bin
+*.safetensors
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.faiss
+.claude/
