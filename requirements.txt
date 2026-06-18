@@ -1,8 +1,5 @@
-# UI
+# UI — HF Spaces installs gradio==5.0.0 from sdk_version; Gradio 5 dropped pydub/audioop
 gradio>=4.44.0
-
-# Python 3.13 removed audioop; pydub tries pyaudioop as fallback — install it
-pyaudioop>=0.2.0
 
 # ML — torch 2.5+ required for Python 3.13 (HF Spaces default)
 torch>=2.5.0
