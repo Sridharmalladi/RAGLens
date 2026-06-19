@@ -21,12 +21,13 @@ _load_lock = threading.Lock()
 
 
 def _build_index(chunks: list[dict], index_path: str) -> faiss.Index:
-    """Encode all chunks with BGE-small and build a flat L2 FAISS index."""
-    from sentence_transformers import SentenceTransformer
-    from config import EMBEDDING_MODEL
+    """Encode all chunks with BGE-small and build a flat L2 FAISS index.
+    Uses the shared _get_embedder() singleton so there is never more than
+    one SentenceTransformer load in flight at the same time."""
+    from src.retrieval import _get_embedder  # thread-safe singleton with lock
 
     logger.info("FAISS index not found — building from %d chunks (one-time, ~60s)…", len(chunks))
-    embedder = SentenceTransformer(EMBEDDING_MODEL)
+    embedder = _get_embedder()
     texts = [c["text"] for c in chunks]
     embeddings = embedder.encode(
         texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True
