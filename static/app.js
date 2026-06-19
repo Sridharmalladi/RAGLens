@@ -17,14 +17,6 @@ const CONFIG_COLORS = {
   4: '#34D399',
 };
 
-// ── Score colour by value ─────────────────────────────────────────────
-function scoreColor(v) {
-  if (v === null || v === undefined) return '#475569';
-  if (v >= 0.75) return '#34D399';
-  if (v >= 0.5)  return '#FBBF24';
-  return '#F87171';
-}
-
 // ── Set query from chip click ─────────────────────────────────────────
 function setQuery(btn) {
   document.getElementById('query-input').value = btn.textContent.trim();
@@ -53,11 +45,11 @@ function resetCards() {
   }
 }
 
-// ── Show "scoring…" placeholder once answers are all in ───────────────
+// ── Show "scoring…" once all 4 answers have arrived ──────────────────
 function markScoringPending() {
   for (let i = 1; i <= 4; i++) {
     const el = document.getElementById(`scores-${i}`);
-    if (!el.innerHTML.trim()) {
+    if (el && !el.innerHTML.trim()) {
       el.innerHTML = `<span class="score-pending">Scoring…</span>`;
     }
   }
@@ -100,12 +92,12 @@ function renderResult(result) {
   }
 }
 
-// ── Update score badges from a score event ────────────────────────────
+// ── Render metric bar rows from a score event ─────────────────────────
 function updateScores(event) {
   const id = event.config_id;
   const scores = event.scores || {};
-  const scoresEl = document.getElementById(`scores-${id}`);
-  if (!scoresEl) return;
+  const el = document.getElementById(`scores-${id}`);
+  if (!el) return;
 
   const METRICS = [
     ['faithfulness',      'Faithfulness'],
@@ -113,22 +105,25 @@ function updateScores(event) {
     ['context_precision', 'Precision'],
   ];
 
-  const badges = METRICS
+  const rows = METRICS
     .filter(([field]) => scores[field] !== null && scores[field] !== undefined)
     .map(([field, label]) => {
       const v = scores[field];
-      const color = scoreColor(v);
-      return `<div class="score-badge">
-        <span class="score-label">${label}</span>
-        <span class="score-val" style="color:${color}">${v.toFixed(2)}</span>
+      const pct = Math.round(v * 100);
+      const color = v >= 0.75 ? '#34D399' : v >= 0.5 ? '#FBBF24' : '#f87171';
+      return `<div class="metric-row">
+        <span class="metric-label">${label}</span>
+        <div class="metric-bar-track">
+          <div class="metric-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="metric-val" style="color:${color}">${v.toFixed(2)}</span>
       </div>`;
     });
 
-  if (badges.length) {
-    scoresEl.innerHTML = badges.join('');
+  if (rows.length) {
+    el.innerHTML = rows.join('');
   } else {
-    // Config 1 — no context, no faithfulness/precision
-    scoresEl.innerHTML = `<span class="score-note">No retrieval — faithfulness N/A</span>`;
+    el.innerHTML = `<span class="score-note">No retrieval context — faithfulness not applicable</span>`;
   }
 }
 
