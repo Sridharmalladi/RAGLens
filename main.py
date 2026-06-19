@@ -27,14 +27,22 @@ logger = logging.getLogger(__name__)
 
 
 def _warmup_models():
-    """Load BGE embedder + reranker into memory before first request."""
+    """Build FAISS index + load BGE models into memory at startup.
+    Runs in a daemon thread so the server is responsive immediately,
+    but all heavy work is done before the first user query arrives.
+    """
     try:
+        # Trigger FAISS index build (or load from disk if already built)
+        from src.corpus import get_index, get_chunks
+        get_chunks()
+        get_index()
+        # Load embedding + reranker models into memory
         from src.retrieval import _get_embedder, _get_reranker
         _get_embedder()
         _get_reranker()
-        logger.info("Model warmup complete")
+        logger.info("Warmup complete — corpus + models ready")
     except Exception as e:
-        logger.warning("Model warmup failed (will load on first request): %s", e)
+        logger.warning("Warmup failed (will init on first request): %s", e)
 
 
 @asynccontextmanager
