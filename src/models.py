@@ -1,7 +1,4 @@
-"""
-Generation via Groq API — no local model loading, sub-second responses.
-Replaces the previous torch/transformers-based approach.
-"""
+"""Generation via Groq API — no local model loading, sub-second responses."""
 
 import logging
 import os

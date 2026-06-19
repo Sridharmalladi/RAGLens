@@ -4,6 +4,7 @@ Call start() once at app startup.
 """
 
 import logging
+from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -46,7 +47,7 @@ def trigger_now() -> None:
     """Manually trigger one evaluation cycle — useful for testing."""
     global _scheduler
     if _scheduler:
-        _scheduler.modify_job("monitoring_cycle", next_run_time=__import__("datetime").datetime.utcnow())
+        _scheduler.modify_job("monitoring_cycle", next_run_time=datetime.utcnow())
     else:
         _job()
 

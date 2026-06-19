@@ -10,8 +10,6 @@ import re
 
 logger = logging.getLogger(__name__)
 
-_RETRY_RE = re.compile(r"Please try again in (\d+\.?\d*)s")
-
 
 def _check_available() -> bool:
     return bool(os.environ.get("GROQ_API_KEY"))
@@ -22,6 +20,7 @@ def _ask(prompt: str) -> float | None:
     import time
     from groq import Groq, RateLimitError
     from config import JUDGE_MODEL
+    from src.models import _retry_wait
 
     client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=15.0)
     for attempt in range(2):
@@ -38,8 +37,7 @@ def _ask(prompt: str) -> float | None:
                 return round(min(max(float(m.group()), 0.0), 1.0), 4)
             return None
         except RateLimitError as e:
-            m = _RETRY_RE.search(str(e))
-            wait = float(m.group(1)) + 1.0 if m else 15.0
+            wait = _retry_wait(e) or 15.0
             if attempt == 0:
                 logger.warning("Scoring rate limited — waiting %.1fs", wait)
                 time.sleep(wait)

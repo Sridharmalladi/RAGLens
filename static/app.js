@@ -1,5 +1,7 @@
 'use strict';
 
+const NUM_CONFIGS = 4;
+
 // ── Selected generation model ─────────────────────────────────────────
 let selectedModel = 'llama-3.1-8b-instant';
 
@@ -26,7 +28,7 @@ function setQuery(btn) {
 // ── Reset cards to loading state ──────────────────────────────────────
 function resetCards() {
   document.getElementById('results-section').style.display = 'block';
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= NUM_CONFIGS; i++) {
     const card = document.getElementById(`card-${i}`);
     card.classList.remove('visible', 'complete');
 
@@ -47,7 +49,7 @@ function resetCards() {
 
 // ── Show "scoring…" once all 4 answers have arrived ──────────────────
 function markScoringPending() {
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= NUM_CONFIGS; i++) {
     const el = document.getElementById(`scores-${i}`);
     if (el && !el.innerHTML.trim()) {
       el.innerHTML = `<span class="score-pending">Scoring…</span>`;
@@ -187,7 +189,7 @@ async function runComparison() {
     }
   } catch (err) {
     console.error('Comparison failed:', err);
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= NUM_CONFIGS; i++) {
       document.getElementById(`answer-${i}`).innerHTML =
         `<div class="card-error">⚠ Request failed — ${err.message}</div>`;
       document.getElementById(`status-${i}`).textContent = '✗';

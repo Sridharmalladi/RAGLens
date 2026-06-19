@@ -76,9 +76,8 @@ def _error_result(config_id: int, message: str) -> dict:
 
 
 def run_all_configs(query: str, model: str | None = None) -> Generator[dict, None, None]:
-    """Run 4 configs sequentially; yield each result as it completes.
-    Sequential execution avoids Groq's 6k TPM free-tier limit being blown
-    by 4 simultaneous large-context requests."""
+    """Run 4 configs sequentially, yielding each result as it completes.
+    Sequential (not parallel) to stay within Groq's 6k TPM free-tier limit."""
     for config_id in range(1, 5):
         yield _run_config(config_id, query, model=model)
 

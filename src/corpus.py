@@ -63,21 +63,21 @@ def _load() -> tuple[faiss.Index, list[dict]]:
     return index, chunks
 
 
-def get_index() -> faiss.Index:
+def _ensure_loaded() -> None:
     global _index, _chunks
     if _index is None:
         with _load_lock:
             if _index is None:
                 _index, _chunks = _load()
+
+
+def get_index() -> faiss.Index:
+    _ensure_loaded()
     return _index
 
 
 def get_chunks() -> list[dict]:
-    global _index, _chunks
-    if _chunks is None:
-        with _load_lock:
-            if _chunks is None:
-                _index, _chunks = _load()
+    _ensure_loaded()
     return _chunks
 
 

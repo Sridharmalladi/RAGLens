@@ -6,7 +6,7 @@ Called by scheduler.py on an hourly cron. Never called from user-facing paths.
 import logging
 from datetime import datetime
 
-from config import MONITORING_QUERIES
+from config import GROQ_GENERATION_MODEL, MONITORING_QUERIES
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def run_evaluation_cycle() -> None:
 
             try:
                 write_run(
-                    model=config_id,
+                    model=GROQ_GENERATION_MODEL,
                     config_id=config_id,
                     config_name=result["config_name"],
                     query=query,

@@ -84,26 +84,23 @@ class QueryRequest(BaseModel):
     model: str | None = None  # falls back to GROQ_GENERATION_MODEL if omitted
 
 
+async def _sse_error(msg: str):
+    yield f'data: {json.dumps({"error": msg})}\n\n'
+
+
 @app.post("/api/compare")
 async def compare(request: QueryRequest):
-    """
-    Stream 4 RAG config results as Server-Sent Events.
-    Each event carries one completed config result (with scores).
-    """
+    """Stream 4 RAG config results as Server-Sent Events, then score events."""
     from src.corpus import is_ready
 
     query = request.query.strip()
     model = request.model if request.model in ALLOWED_MODELS else None
 
     if not query:
-        async def _err():
-            yield 'data: {"error": "Empty query"}\n\n'
-        return StreamingResponse(_err(), media_type="text/event-stream")
+        return StreamingResponse(_sse_error("Empty query"), media_type="text/event-stream")
 
     if not is_ready():
-        async def _err():
-            yield 'data: {"error": "Corpus not ready — upload corpus/index.faiss via HF Files tab"}\n\n'
-        return StreamingResponse(_err(), media_type="text/event-stream")
+        return StreamingResponse(_sse_error("Corpus not ready"), media_type="text/event-stream")
 
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
