@@ -241,7 +241,7 @@ CSS = """
 .score-row { font-family: monospace; font-size: 0.85rem; }
 """
 
-with gr.Blocks(title=APP_TITLE, theme=gr.themes.Soft(), css=CSS) as demo:
+with gr.Blocks(title=APP_TITLE) as demo:
 
     gr.HTML(f"""
     <div class="raglens-header">
@@ -385,4 +385,10 @@ Built by **Sridhar Malladi** | [GitHub](https://github.com/sridharmalladi)
         """)
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        show_error=True,
+        theme=gr.themes.Soft(),
+        css=CSS,
+    )

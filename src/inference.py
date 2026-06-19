@@ -1,7 +1,8 @@
 """
 User-facing inference path.
-Runs all 4 RAG configs in parallel for a given query + model.
-NEVER writes to the monitoring database — this path is read-only.
+Runs 4 RAG configs in parallel and yields results as they complete.
+Generation is via Groq API — no local models.
+NEVER writes to the monitoring database.
 """
 
 import logging
@@ -15,11 +16,7 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
-def _run_config(config_id: int, query: str, model_id: str) -> dict:
-    """
-    Execute one RAG config. Returns a result dict.
-    config_id 1-4 maps to: baseline / dense RAG / FT+dense / FT+hybrid+rerank
-    """
+def _run_config(config_id: int, query: str) -> dict:
     from src.retrieval import dense_retrieve, hybrid_retrieve, rerank
     from src.models import generate
 
@@ -27,21 +24,17 @@ def _run_config(config_id: int, query: str, model_id: str) -> dict:
         context_chunks: list[dict] = []
 
         if config_id == 1:
-            # Baseline: no retrieval
             context = None
 
         elif config_id == 2:
-            # Dense retrieval only
             context_chunks = dense_retrieve(query, k=TOP_K)
             context = _chunks_to_context(context_chunks)
 
         elif config_id == 3:
-            # Fine-tuned model + dense retrieval
-            context_chunks = dense_retrieve(query, k=TOP_K)
+            context_chunks = hybrid_retrieve(query, k=TOP_K)
             context = _chunks_to_context(context_chunks)
 
         elif config_id == 4:
-            # Fine-tuned model + hybrid retrieval + reranking
             candidates = hybrid_retrieve(query, k=TOP_K * 2)
             context_chunks = rerank(query, candidates, top_n=RERANK_TOP_N)
             context = _chunks_to_context(context_chunks)
@@ -49,8 +42,7 @@ def _run_config(config_id: int, query: str, model_id: str) -> dict:
         else:
             return _error_result(config_id, "Unknown config ID")
 
-        use_adapter = config_id in (3, 4)
-        answer, latency = generate(model_id, query, context, use_adapter=use_adapter)
+        answer, latency = generate(query, context)
 
         return {
             "config_id": config_id,
@@ -69,11 +61,9 @@ def _run_config(config_id: int, query: str, model_id: str) -> dict:
 
 
 def _chunks_to_context(chunks: list[dict]) -> str:
-    """Format retrieved chunks as a numbered context block."""
     if not chunks:
         return ""
-    parts = [f"[{i+1}] {c['text']}" for i, c in enumerate(chunks)]
-    return "\n\n".join(parts)
+    return "\n\n".join(f"[{i+1}] {c['text']}" for i, c in enumerate(chunks))
 
 
 def _error_result(config_id: int, message: str) -> dict:
@@ -89,17 +79,10 @@ def _error_result(config_id: int, message: str) -> dict:
     }
 
 
-def run_all_configs(
-    query: str,
-    model_id: str,
-) -> Generator[dict, None, None]:
-    """
-    Run all 4 configs in parallel. Yields each result as it completes.
-    Caller receives results in completion order, not config order.
-    This is a generator — iterate it to get progressive disclosure.
-    """
+def run_all_configs(query: str) -> Generator[dict, None, None]:
+    """Run all 4 configs in parallel; yield each result as it completes."""
     futures = {
-        _executor.submit(_run_config, config_id, query, model_id): config_id
+        _executor.submit(_run_config, config_id, query): config_id
         for config_id in range(1, 5)
     }
     for future in as_completed(futures):
@@ -111,12 +94,6 @@ def run_all_configs(
             yield _error_result(config_id, str(e))
 
 
-def run_all_configs_blocking(query: str, model_id: str) -> dict[int, dict]:
-    """
-    Blocking version — waits for all 4 configs and returns {config_id: result}.
-    Used by monitoring.py which needs all results before writing to DB.
-    """
-    results = {}
-    for result in run_all_configs(query, model_id):
-        results[result["config_id"]] = result
-    return results
+def run_all_configs_blocking(query: str) -> dict[int, dict]:
+    """Blocking version used by monitoring.py."""
+    return {r["config_id"]: r for r in run_all_configs(query)}

@@ -1,26 +1,19 @@
-# UI — HF Spaces installs gradio==5.0.0 from sdk_version; Gradio 5 dropped pydub/audioop
-gradio>=4.44.0
-
-# ML — torch 2.5+ required for Python 3.13 (HF Spaces default)
+# Embeddings & retrieval — torch required by sentence-transformers (BGE models, ~400 MB)
 torch>=2.5.0
-transformers>=4.45.0
-peft>=0.13.0
-accelerate>=0.34.0
-sentencepiece>=0.2.0
-
-# Embeddings & retrieval
 sentence-transformers>=3.1.0
 faiss-cpu>=1.8.0
 rank_bm25>=0.2.2
 
-# Storage & scheduling
+# API server
+fastapi>=0.115.0
+uvicorn[standard]>=0.14.0
+python-multipart>=0.0.7
+
+# Scheduling & storage
 apscheduler>=3.10.0
 
-# Charts
-plotly>=5.24.0
+# Groq SDK — generation + evaluation (no local LLM weights needed)
+groq>=0.11.0
 
 # Env
 python-dotenv>=1.0.0
-
-# Groq SDK — used directly for LLM-as-judge scoring
-groq>=0.11.0

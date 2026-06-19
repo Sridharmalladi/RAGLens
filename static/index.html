@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAGLens — Live RAG Benchmarking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- ── Nav ────────────────────────────────────────────────────────── -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="logo">
+        <span class="logo-icon">⬡</span>
+        <span class="logo-text">RAG<span class="logo-accent">Lens</span></span>
+      </div>
+      <div class="nav-right">
+        <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+        <span class="nav-sub">Groq · HF Spaces · Free tier</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Hero ───────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-bg-glow"></div>
+    <div class="hero-content">
+      <div class="hero-tag">50 arXiv papers · 4 retrieval strategies · LLM-as-judge scoring</div>
+      <h1 class="hero-title">
+        Compare RAG Configurations
+        <span class="gradient-text">Side by Side</span>
+      </h1>
+      <p class="hero-sub">
+        See exactly what retrieval adds. Every query runs through four pipelines simultaneously —
+        baseline, dense, hybrid, and reranked — with live faithfulness, relevancy, and precision scores.
+      </p>
+
+      <!-- Query chips -->
+      <div class="chips-row">
+        <button class="chip" onclick="setQuery(this)">How does hybrid retrieval combine dense and sparse search?</button>
+        <button class="chip" onclick="setQuery(this)">What evaluation metrics matter most for production RAG?</button>
+        <button class="chip" onclick="setQuery(this)">When does fine-tuning beat better retrieval?</button>
+      </div>
+
+      <!-- Query input -->
+      <div class="query-box">
+        <textarea
+          id="query-input"
+          class="query-textarea"
+          placeholder="Ask anything about RAG, retrieval, or LLM evaluation…"
+          rows="2"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runComparison();}"
+        ></textarea>
+        <button id="run-btn" class="run-btn" onclick="runComparison()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l10 6-10 6V2z"/></svg>
+          Run 4 configs
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Results ────────────────────────────────────────────────────── -->
+  <section class="results-section" id="results-section" style="display:none">
+    <div class="section-label">Results</div>
+    <div class="results-grid">
+
+      <div class="config-card" id="card-1" data-color="#6B7280">
+        <div class="card-header">
+          <div class="config-dot" style="background:#6B7280"></div>
+          <h3 class="config-name">No RAG</h3>
+          <span class="card-tag">Baseline</span>
+          <span class="card-status" id="status-1">●</span>
+        </div>
+        <p class="config-desc" id="desc-1">Baseline — model answers from training knowledge only</p>
+        <div class="card-divider"></div>
+        <div class="card-answer" id="answer-1">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+        </div>
+        <div class="card-scores" id="scores-1"></div>
+        <div class="card-sources" id="sources-1"></div>
+      </div>
+
+      <div class="config-card" id="card-2" data-color="#60A5FA">
+        <div class="card-header">
+          <div class="config-dot" style="background:#60A5FA"></div>
+          <h3 class="config-name">Dense RAG</h3>
+          <span class="card-tag">FAISS · BGE</span>
+          <span class="card-status" id="status-2">●</span>
+        </div>
+        <p class="config-desc" id="desc-2">FAISS dense retrieval — BGE-small embeddings, top-5 chunks</p>
+        <div class="card-divider"></div>
+        <div class="card-answer" id="answer-2">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+        </div>
+        <div class="card-scores" id="scores-2"></div>
+        <div class="card-sources" id="sources-2"></div>
+      </div>
+
+      <div class="config-card" id="card-3" data-color="#FBBF24">
+        <div class="card-header">
+          <div class="config-dot" style="background:#FBBF24"></div>
+          <h3 class="config-name">Hybrid RAG</h3>
+          <span class="card-tag">Dense + BM25</span>
+          <span class="card-status" id="status-3">●</span>
+        </div>
+        <p class="config-desc" id="desc-3">Hybrid retrieval — dense + BM25 sparse, top-5 chunks</p>
+        <div class="card-divider"></div>
+        <div class="card-answer" id="answer-3">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+        </div>
+        <div class="card-scores" id="scores-3"></div>
+        <div class="card-sources" id="sources-3"></div>
+      </div>
+
+      <div class="config-card" id="card-4" data-color="#34D399">
+        <div class="card-header">
+          <div class="config-dot" style="background:#34D399"></div>
+          <h3 class="config-name">Hybrid + Rerank</h3>
+          <span class="card-tag">BGE cross-encoder</span>
+          <span class="card-status" id="status-4">●</span>
+        </div>
+        <p class="config-desc" id="desc-4">Hybrid + cross-encoder reranking — BGE-reranker, top-3 chunks</p>
+        <div class="card-divider"></div>
+        <div class="card-answer" id="answer-4">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line"></div>
+        </div>
+        <div class="card-scores" id="scores-4"></div>
+        <div class="card-sources" id="sources-4"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Monitoring ─────────────────────────────────────────────────── -->
+  <section class="monitoring-section">
+    <div class="monitoring-header">
+      <div>
+        <div class="section-label">Live Monitoring</div>
+        <h2 class="monitoring-title">7-Day Performance Dashboard</h2>
+        <p class="monitoring-sub">
+          Hourly background job evaluates 3 fixed queries across all 4 configs.
+          User traffic never pollutes monitoring data.
+        </p>
+      </div>
+      <div class="monitoring-meta">
+        <div class="meta-item">
+          <span class="meta-label">Last run</span>
+          <span class="meta-value" id="last-run">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Next run</span>
+          <span class="meta-value" id="next-run">—</span>
+        </div>
+        <button class="refresh-btn" onclick="loadMonitoring()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="drift-banner" id="drift-banner" style="display:none"></div>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-label">Faithfulness Score (7 days)</div>
+        <canvas id="faith-chart" height="200"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-label">Response Latency — seconds (7 days)</div>
+        <canvas id="latency-chart" height="200"></canvas>
+      </div>
+    </div>
+
+    <div class="no-data" id="no-data-msg" style="display:none">
+      No monitoring data yet. The first evaluation cycle runs automatically in ~1 hour.
+    </div>
+  </section>
+
+  <!-- ── About strip ────────────────────────────────────────────────── -->
+  <section class="about-strip">
+    <div class="about-inner">
+      <div class="about-col">
+        <div class="about-label">Corpus</div>
+        <div class="about-val">50 arXiv papers · 1,665 chunks · BGE-small-en-v1.5</div>
+      </div>
+      <div class="about-col">
+        <div class="about-label">Generation</div>
+        <div class="about-val">Groq llama-3.1-8b-instant (free tier)</div>
+      </div>
+      <div class="about-col">
+        <div class="about-label">Evaluation</div>
+        <div class="about-val">LLM-as-judge · Groq · Faithfulness + Relevancy + Precision</div>
+      </div>
+      <div class="about-col">
+        <div class="about-label">Infrastructure</div>
+        <div class="about-val">HF Spaces CPU · SQLite · APScheduler · $0/month</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────── -->
+  <footer class="footer">
+    <span>Built by <strong>Sridhar Malladi</strong></span>
+    <span class="footer-sep">·</span>
+    <span>RAGLens runs at zero marginal cost — architecture over compute</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
