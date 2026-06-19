@@ -6,17 +6,13 @@ NEVER writes to the monitoring database.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Generator
 
 from config import CONFIG_NAMES, CONFIG_DESCRIPTIONS, TOP_K, RERANK_TOP_N
 
 logger = logging.getLogger(__name__)
 
-_executor = ThreadPoolExecutor(max_workers=4)
-
-
-def _run_config(config_id: int, query: str) -> dict:
+def _run_config(config_id: int, query: str, model: str | None = None) -> dict:
     from src.retrieval import dense_retrieve, hybrid_retrieve, rerank
     from src.models import generate
 
@@ -42,7 +38,7 @@ def _run_config(config_id: int, query: str) -> dict:
         else:
             return _error_result(config_id, "Unknown config ID")
 
-        answer, latency = generate(query, context)
+        answer, latency = generate(query, context, model=model)
 
         return {
             "config_id": config_id,
@@ -79,21 +75,14 @@ def _error_result(config_id: int, message: str) -> dict:
     }
 
 
-def run_all_configs(query: str) -> Generator[dict, None, None]:
-    """Run all 4 configs in parallel; yield each result as it completes."""
-    futures = {
-        _executor.submit(_run_config, config_id, query): config_id
-        for config_id in range(1, 5)
-    }
-    for future in as_completed(futures):
-        try:
-            yield future.result()
-        except Exception as e:
-            config_id = futures[future]
-            logger.error("Unexpected error in config %d: %s", config_id, e)
-            yield _error_result(config_id, str(e))
+def run_all_configs(query: str, model: str | None = None) -> Generator[dict, None, None]:
+    """Run 4 configs sequentially; yield each result as it completes.
+    Sequential execution avoids Groq's 6k TPM free-tier limit being blown
+    by 4 simultaneous large-context requests."""
+    for config_id in range(1, 5):
+        yield _run_config(config_id, query, model=model)
 
 
-def run_all_configs_blocking(query: str) -> dict[int, dict]:
+def run_all_configs_blocking(query: str, model: str | None = None) -> dict[int, dict]:
     """Blocking version used by monitoring.py."""
-    return {r["config_id"]: r for r in run_all_configs(query)}
+    return {r["config_id"]: r for r in run_all_configs(query, model=model)}

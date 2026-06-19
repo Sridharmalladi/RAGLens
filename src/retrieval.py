@@ -4,7 +4,7 @@ All functions return a list of chunk dicts: [{id, text, source, chunk_idx}].
 """
 
 import logging
-from dataclasses import dataclass
+import threading
 
 import numpy as np
 from rank_bm25 import BM25Okapi
@@ -17,36 +17,45 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Module-level singletons — initialized lazily on first call
+# Module-level singletons — guarded by locks so concurrent threads don't double-init
 _embedder: SentenceTransformer | None = None
 _reranker: CrossEncoder | None = None
 _bm25: BM25Okapi | None = None
 _bm25_chunks: list[dict] | None = None
 
+_embedder_lock = threading.Lock()
+_reranker_lock = threading.Lock()
+_bm25_lock = threading.Lock()
+
 
 def _get_embedder() -> SentenceTransformer:
     global _embedder
     if _embedder is None:
-        logger.info("Loading embedding model %s", EMBEDDING_MODEL)
-        _embedder = SentenceTransformer(EMBEDDING_MODEL)
+        with _embedder_lock:
+            if _embedder is None:
+                logger.info("Loading embedding model %s", EMBEDDING_MODEL)
+                _embedder = SentenceTransformer(EMBEDDING_MODEL)
     return _embedder
 
 
 def _get_reranker() -> CrossEncoder:
     global _reranker
     if _reranker is None:
-        logger.info("Loading reranker model %s", RERANKER_MODEL)
-        _reranker = CrossEncoder(RERANKER_MODEL)
+        with _reranker_lock:
+            if _reranker is None:
+                logger.info("Loading reranker model %s", RERANKER_MODEL)
+                _reranker = CrossEncoder(RERANKER_MODEL)
     return _reranker
 
 
 def _get_bm25(chunks: list[dict]) -> BM25Okapi:
     global _bm25, _bm25_chunks
-    if _bm25 is None or _bm25_chunks is not chunks:
-        logger.info("Building BM25 index over %d chunks", len(chunks))
-        tokenized = [c["text"].lower().split() for c in chunks]
-        _bm25 = BM25Okapi(tokenized)
-        _bm25_chunks = chunks
+    with _bm25_lock:
+        if _bm25 is None or _bm25_chunks is not chunks:
+            logger.info("Building BM25 index over %d chunks", len(chunks))
+            tokenized = [c["text"].lower().split() for c in chunks]
+            _bm25 = BM25Okapi(tokenized)
+            _bm25_chunks = chunks
     return _bm25
 
 

@@ -39,6 +39,14 @@
         baseline, dense, hybrid, and reranked — with live faithfulness, relevancy, and precision scores.
       </p>
 
+      <!-- Model selector -->
+      <div class="model-tabs">
+        <span class="model-tabs-label">Model</span>
+        <button class="model-tab active" data-model="llama-3.1-8b-instant" onclick="selectModel(this)">llama-3.1-8b <span class="model-tab-note">fast</span></button>
+        <button class="model-tab" data-model="llama-3.3-70b-versatile" onclick="selectModel(this)">llama-3.3-70b <span class="model-tab-note">capable</span></button>
+        <button class="model-tab" data-model="compound-beta" onclick="selectModel(this)">compound-β <span class="model-tab-note">agentic</span></button>
+      </div>
+
       <!-- Query chips -->
       <div class="chips-row">
         <button class="chip" onclick="setQuery(this)">How does hybrid retrieval combine dense and sparse search?</button>
@@ -93,7 +101,7 @@
           <span class="card-tag">FAISS · BGE</span>
           <span class="card-status" id="status-2">●</span>
         </div>
-        <p class="config-desc" id="desc-2">FAISS dense retrieval — BGE-small embeddings, top-5 chunks</p>
+        <p class="config-desc" id="desc-2">FAISS dense retrieval — BGE-small embeddings, top-3 chunks</p>
         <div class="card-divider"></div>
         <div class="card-answer" id="answer-2">
           <div class="skeleton-line"></div>
@@ -111,7 +119,7 @@
           <span class="card-tag">Dense + BM25</span>
           <span class="card-status" id="status-3">●</span>
         </div>
-        <p class="config-desc" id="desc-3">Hybrid retrieval — dense + BM25 sparse, top-5 chunks</p>
+        <p class="config-desc" id="desc-3">Hybrid retrieval — dense + BM25 sparse, top-3 chunks</p>
         <div class="card-divider"></div>
         <div class="card-answer" id="answer-3">
           <div class="skeleton-line"></div>
@@ -129,7 +137,7 @@
           <span class="card-tag">BGE cross-encoder</span>
           <span class="card-status" id="status-4">●</span>
         </div>
-        <p class="config-desc" id="desc-4">Hybrid + cross-encoder reranking — BGE-reranker, top-3 chunks</p>
+        <p class="config-desc" id="desc-4">Hybrid + cross-encoder reranking — BGE-reranker, top-2 reranked</p>
         <div class="card-divider"></div>
         <div class="card-answer" id="answer-4">
           <div class="skeleton-line"></div>

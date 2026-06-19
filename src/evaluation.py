@@ -24,26 +24,41 @@ def _check_available() -> bool:
     return _ragas_ready
 
 
+_RETRY_RE = re.compile(r"Please try again in (\d+\.?\d*)s")
+
+
 def _ask(prompt: str) -> float | None:
     """One Groq call. Returns a float in [0, 1] or None on failure."""
-    try:
-        from groq import Groq
-        from config import JUDGE_MODEL
+    import time
+    from groq import Groq, RateLimitError
+    from config import JUDGE_MODEL
 
-        client = Groq(api_key=os.environ["GROQ_API_KEY"])
-        resp = client.chat.completions.create(
-            model=JUDGE_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            max_tokens=10,
-        )
-        text = resp.choices[0].message.content.strip()
-        match = re.search(r"1\.0|0\.\d+|[01]", text)
-        if match:
-            val = float(match.group())
-            return round(min(max(val, 0.0), 1.0), 4)
-    except Exception as e:
-        logger.warning("Groq scoring call failed: %s", e)
+    client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=15.0)
+    for attempt in range(2):
+        try:
+            resp = client.chat.completions.create(
+                model=JUDGE_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=10,
+            )
+            text = resp.choices[0].message.content.strip()
+            m = re.search(r"1\.0|0\.\d+|[01]", text)
+            if m:
+                return round(min(max(float(m.group()), 0.0), 1.0), 4)
+            return None
+        except RateLimitError as e:
+            m = _RETRY_RE.search(str(e))
+            wait = float(m.group(1)) + 1.0 if m else 15.0
+            if attempt == 0:
+                logger.warning("Scoring rate limited — waiting %.1fs", wait)
+                time.sleep(wait)
+            else:
+                logger.warning("Scoring rate limited after retry, skipping")
+                return None
+        except Exception as e:
+            logger.warning("Groq scoring call failed: %s", e)
+            return None
     return None
 
 

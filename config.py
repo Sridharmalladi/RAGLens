@@ -2,15 +2,15 @@ import os
 
 # Generation — Groq API (no local model loading, sub-second responses)
 GROQ_GENERATION_MODEL = "llama-3.1-8b-instant"
-MAX_NEW_TOKENS = 512
+MAX_NEW_TOKENS = 300
 
 # Embeddings & retrieval (local, small models ~400 MB total)
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 50
-TOP_K = 5
-RERANK_TOP_N = 3
+TOP_K = 3
+RERANK_TOP_N = 2
 HYBRID_ALPHA = 0.5
 
 # Paths
@@ -49,9 +49,9 @@ CONFIG_NAMES = {
 
 CONFIG_DESCRIPTIONS = {
     1: "Baseline — model answers from training knowledge only",
-    2: "FAISS dense retrieval — BGE-small embeddings, top-5 chunks",
-    3: "Hybrid retrieval — dense + BM25 sparse, top-5 chunks",
-    4: "Hybrid + cross-encoder reranking — BGE-reranker, top-3 chunks",
+    2: "FAISS dense retrieval — BGE-small embeddings, top-3 chunks",
+    3: "Hybrid retrieval — dense + BM25 sparse, top-3 chunks",
+    4: "Hybrid + cross-encoder reranking — BGE-reranker, top-2 reranked",
 }
 
 CONFIG_COLORS = {

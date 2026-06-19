@@ -26,6 +26,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _warmup_models():
+    """Load BGE embedder + reranker into memory before first request."""
+    try:
+        from src.retrieval import _get_embedder, _get_reranker
+        _get_embedder()
+        _get_reranker()
+        logger.info("Model warmup complete")
+    except Exception as e:
+        logger.warning("Model warmup failed (will load on first request): %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from src.storage import init_db
@@ -33,6 +44,7 @@ async def lifespan(app: FastAPI):
 
     init_db()
     start_scheduler()
+    threading.Thread(target=_warmup_models, daemon=True).start()
     logger.info("RAGLens started")
     yield
     logger.info("RAGLens shutting down")
@@ -52,8 +64,16 @@ app.add_middleware(
 # API routes
 # ---------------------------------------------------------------------------
 
+ALLOWED_MODELS = {
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "compound-beta",
+}
+
+
 class QueryRequest(BaseModel):
     query: str
+    model: str | None = None  # falls back to GROQ_GENERATION_MODEL if omitted
 
 
 @app.post("/api/compare")
@@ -65,6 +85,7 @@ async def compare(request: QueryRequest):
     from src.corpus import is_ready
 
     query = request.query.strip()
+    model = request.model if request.model in ALLOWED_MODELS else None
 
     if not query:
         async def _err():
@@ -81,19 +102,11 @@ async def compare(request: QueryRequest):
 
     def _run_sync():
         from src.inference import run_all_configs
-        from src.evaluation import score as eval_score
 
-        for result in run_all_configs(query):
-            if not result.get("error") and result.get("answer"):
-                try:
-                    result["scores"] = eval_score(
-                        query, result["answer"], result.get("context_chunks", [])
-                    )
-                except Exception as e:
-                    logger.warning("Scoring failed: %s", e)
-                    result["scores"] = {}
-            else:
-                result["scores"] = {}
+        for result in run_all_configs(query, model=model):
+            # Scoring is deferred to the hourly monitoring job to avoid
+            # Groq free-tier 6k TPM being blown by generation + scoring together.
+            result["scores"] = {}
             asyncio.run_coroutine_threadsafe(queue.put(result), loop)
 
         asyncio.run_coroutine_threadsafe(queue.put(None), loop)

@@ -1,5 +1,14 @@
 'use strict';
 
+// ── Selected generation model ─────────────────────────────────────────
+let selectedModel = 'llama-3.1-8b-instant';
+
+function selectModel(btn) {
+  document.querySelectorAll('.model-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  selectedModel = btn.dataset.model;
+}
+
 // ── Config colours matching Python config ─────────────────────────────
 const CONFIG_COLORS = {
   1: '#6B7280',
@@ -75,22 +84,27 @@ function renderResult(result) {
 
   // Scores
   const scores = result.scores || {};
-  const metrics = [
-    ['F', 'faithfulness', 'Faithfulness'],
-    ['R', 'answer_relevancy', 'Relevancy'],
-    ['P', 'context_precision', 'Precision'],
-  ];
+  const hasScores = Object.values(scores).some(v => v !== null && v !== undefined);
   const scoresEl = document.getElementById(`scores-${id}`);
-  scoresEl.innerHTML = metrics.map(([key, field, label]) => {
-    const v = scores[field];
-    const display = v !== null && v !== undefined ? v.toFixed(2) : '—';
-    const color = scoreColor(v);
-    return `
-      <div class="score-badge">
-        <span class="score-label">${label}</span>
-        <span class="score-val" style="color:${color}">${display}</span>
-      </div>`;
-  }).join('');
+  if (hasScores) {
+    const metrics = [
+      ['faithfulness', 'Faithfulness'],
+      ['answer_relevancy', 'Relevancy'],
+      ['context_precision', 'Precision'],
+    ];
+    scoresEl.innerHTML = metrics.map(([field, label]) => {
+      const v = scores[field];
+      const display = v !== null && v !== undefined ? v.toFixed(2) : '—';
+      const color = scoreColor(v);
+      return `
+        <div class="score-badge">
+          <span class="score-label">${label}</span>
+          <span class="score-val" style="color:${color}">${display}</span>
+        </div>`;
+    }).join('');
+  } else if (id !== 1) {
+    scoresEl.innerHTML = `<span class="score-note">Scores run hourly in monitoring ↓</span>`;
+  }
 
   // Sources
   const sources = result.sources || [];
@@ -126,7 +140,7 @@ async function runComparison() {
     const response = await fetch('/api/compare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, model: selectedModel }),
     });
 
     if (!response.ok) {
