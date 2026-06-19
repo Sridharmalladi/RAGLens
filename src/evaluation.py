@@ -1,8 +1,7 @@
 """
 LLM-as-judge scoring via Groq API (llama-3.1-8b-instant).
-Three structured prompts cover the same axes as RAGAS:
-  faithfulness, answer_relevancy, context_precision.
-No external eval frameworks — just the groq SDK already in requirements.
+Three metrics matching RAGAS axes: faithfulness, answer_relevancy, context_precision.
+answer_relevancy runs for all configs; faithfulness + context_precision require context.
 """
 
 import logging
@@ -11,24 +10,15 @@ import re
 
 logger = logging.getLogger(__name__)
 
-_ragas_ready: bool | None = None  # None = unchecked
-
-
-def _check_available() -> bool:
-    global _ragas_ready
-    if _ragas_ready is not None:
-        return _ragas_ready
-    _ragas_ready = bool(os.environ.get("GROQ_API_KEY"))
-    if not _ragas_ready:
-        logger.warning("GROQ_API_KEY not set — scoring disabled")
-    return _ragas_ready
-
-
 _RETRY_RE = re.compile(r"Please try again in (\d+\.?\d*)s")
 
 
+def _check_available() -> bool:
+    return bool(os.environ.get("GROQ_API_KEY"))
+
+
 def _ask(prompt: str) -> float | None:
-    """One Groq call. Returns a float in [0, 1] or None on failure."""
+    """One Groq call. Returns float in [0,1] or None on failure/rate-limit."""
     import time
     from groq import Groq, RateLimitError
     from config import JUDGE_MODEL
@@ -65,18 +55,30 @@ def _ask(prompt: str) -> float | None:
 def score(
     query: str,
     answer: str,
-    contexts: list[str],
+    contexts: list[str] | None = None,
     ground_truth: str | None = None,
 ) -> dict:
     """
     Score one RAG result.
-    Returns {faithfulness, answer_relevancy, context_precision} in [0, 1],
-    or all-None if scoring is unavailable or inputs are empty.
+    - answer_relevancy is computed for all configs (no context needed).
+    - faithfulness and context_precision are only computed when contexts is non-empty.
+    Returns dict with all three keys; values are floats in [0,1] or None.
     """
     null = {"faithfulness": None, "answer_relevancy": None, "context_precision": None}
-
-    if not _check_available() or not answer or not contexts:
+    if not _check_available() or not answer:
         return null
+
+    contexts = contexts or []
+
+    relevancy = _ask(
+        f"Question: {query}\n\nAnswer: {answer}\n\n"
+        "Rate ANSWER RELEVANCY (0.0–1.0): how well does the answer address "
+        "the question? 1.0 = perfectly on-topic, 0.0 = completely off-topic. "
+        "Reply with a single decimal number only."
+    )
+
+    if not contexts:
+        return {"faithfulness": None, "answer_relevancy": relevancy, "context_precision": None}
 
     ctx = "\n\n".join(f"[{i+1}] {c}" for i, c in enumerate(contexts[:3]))
 
@@ -85,15 +87,7 @@ def score(
         f"Answer: {answer}\n\n"
         "Rate FAITHFULNESS (0.0–1.0): does the answer use ONLY information "
         "from the context, without adding facts not found there? "
-        "1.0 = fully grounded in context, 0.0 = hallucinated. "
-        "Reply with a single decimal number only."
-    )
-
-    relevancy = _ask(
-        f"Question: {query}\n\n"
-        f"Answer: {answer}\n\n"
-        "Rate ANSWER RELEVANCY (0.0–1.0): how well does the answer address "
-        "the question? 1.0 = perfectly on-topic, 0.0 = completely off-topic. "
+        "1.0 = fully grounded, 0.0 = hallucinated. "
         "Reply with a single decimal number only."
     )
 

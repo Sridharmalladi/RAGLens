@@ -110,12 +110,31 @@ async def compare(request: QueryRequest):
 
     def _run_sync():
         from src.inference import run_all_configs
+        from src.evaluation import score as eval_score, scoring_available
 
+        # Phase 1 — stream answers as they complete
+        all_results = []
         for result in run_all_configs(query, model=model):
-            # Scoring is deferred to the hourly monitoring job to avoid
-            # Groq free-tier 6k TPM being blown by generation + scoring together.
-            result["scores"] = {}
-            asyncio.run_coroutine_threadsafe(queue.put(result), loop)
+            contexts = result.get("context_chunks") or []
+            payload = {k: v for k, v in result.items() if k != "context_chunks"}
+            payload["scores"] = {}
+            asyncio.run_coroutine_threadsafe(queue.put(payload), loop)
+            all_results.append((result, contexts))
+
+        # Phase 2 — score each config and stream score events
+        if scoring_available():
+            for result, contexts in all_results:
+                answer = result.get("answer") or ""
+                if answer and not answer.startswith("["):
+                    s = eval_score(query, answer, contexts)
+                    asyncio.run_coroutine_threadsafe(
+                        queue.put({
+                            "type": "score",
+                            "config_id": result["config_id"],
+                            "scores": s,
+                        }),
+                        loop,
+                    )
 
         asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
@@ -139,18 +158,51 @@ async def compare(request: QueryRequest):
 
 @app.get("/api/monitoring")
 async def monitoring():
+    from collections import defaultdict
     from src.storage import read_recent, detect_drift, read_last_run_time
     from src.scheduler import next_run_time
-    from config import DRIFT_ALERT_THRESHOLD
+    from config import DRIFT_ALERT_THRESHOLD, CONFIG_COLORS, CONFIG_NAMES
 
     rows = read_recent(days=7)
     alerts = detect_drift(threshold=DRIFT_ALERT_THRESHOLD)
 
+    # Group rows by (config_id, hour-slot) so each monitoring run → one averaged point
+    groups: dict[tuple, list] = defaultdict(list)
+    for row in rows:
+        hour_slot = row["timestamp"][:13]  # "YYYY-MM-DDTHH"
+        groups[(row["config_id"], hour_slot)].append(row)
+
+    # Build per-config series sorted by time
+    config_map: dict[int, dict] = {}
+    for (config_id, hour_slot), grp in groups.items():
+        if config_id not in config_map:
+            config_map[config_id] = {
+                "config_id": config_id,
+                "config_name": CONFIG_NAMES.get(config_id, f"Config {config_id}"),
+                "color": CONFIG_COLORS.get(config_id, "#818CF8"),
+                "points": [],
+            }
+        faiths = [r["faithfulness"] for r in grp if r.get("faithfulness") is not None]
+        rels   = [r["answer_relevancy"] for r in grp if r.get("answer_relevancy") is not None]
+        precs  = [r["context_precision"] for r in grp if r.get("context_precision") is not None]
+        lats   = [r["latency_s"] for r in grp]
+        config_map[config_id]["points"].append({
+            "ts":                hour_slot.replace("T", " ") + ":00",
+            "faithfulness":      round(sum(faiths) / len(faiths), 4) if faiths else None,
+            "answer_relevancy":  round(sum(rels)   / len(rels),   4) if rels   else None,
+            "context_precision": round(sum(precs)  / len(precs),  4) if precs  else None,
+            "latency":           round(sum(lats)   / len(lats),   3) if lats   else None,
+        })
+
+    for s in config_map.values():
+        s["points"].sort(key=lambda p: p["ts"])
+
     return {
-        "rows": rows,
+        "series": sorted(config_map.values(), key=lambda s: s["config_id"]),
         "alerts": alerts,
         "last_run": read_last_run_time(),
         "next_run": next_run_time(),
+        "has_data": bool(rows),
     }
 
 

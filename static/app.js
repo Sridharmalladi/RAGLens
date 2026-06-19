@@ -20,8 +20,8 @@ const CONFIG_COLORS = {
 // ── Score colour by value ─────────────────────────────────────────────
 function scoreColor(v) {
   if (v === null || v === undefined) return '#475569';
-  if (v >= 0.8) return '#34D399';
-  if (v >= 0.6) return '#FBBF24';
+  if (v >= 0.75) return '#34D399';
+  if (v >= 0.5)  return '#FBBF24';
   return '#F87171';
 }
 
@@ -38,12 +38,11 @@ function resetCards() {
     const card = document.getElementById(`card-${i}`);
     card.classList.remove('visible', 'complete');
 
-    const answer = document.getElementById(`answer-${i}`);
-    answer.innerHTML = `
-      <div class="skeleton-line"></div>
-      <div class="skeleton-line short"></div>
-      <div class="skeleton-line"></div>`;
-    answer.classList.remove('filled');
+    document.getElementById(`answer-${i}`).innerHTML =
+      `<div class="skeleton-line"></div>
+       <div class="skeleton-line short"></div>
+       <div class="skeleton-line"></div>`;
+    document.getElementById(`answer-${i}`).classList.remove('filled');
 
     const status = document.getElementById(`status-${i}`);
     status.textContent = '●';
@@ -54,13 +53,22 @@ function resetCards() {
   }
 }
 
-// ── Render a completed result into its card ───────────────────────────
+// ── Show "scoring…" placeholder once answers are all in ───────────────
+function markScoringPending() {
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById(`scores-${i}`);
+    if (!el.innerHTML.trim()) {
+      el.innerHTML = `<span class="score-pending">Scoring…</span>`;
+    }
+  }
+}
+
+// ── Render a completed answer into its card ───────────────────────────
 function renderResult(result) {
   const id = result.config_id;
-  const card  = document.getElementById(`card-${id}`);
+  const card   = document.getElementById(`card-${id}`);
   const status = document.getElementById(`status-${id}`);
 
-  // Animate card in (stagger by config_id order)
   card.classList.add('visible');
 
   if (result.error) {
@@ -82,30 +90,6 @@ function renderResult(result) {
   status.className = 'card-status done';
   card.classList.add('complete');
 
-  // Scores
-  const scores = result.scores || {};
-  const hasScores = Object.values(scores).some(v => v !== null && v !== undefined);
-  const scoresEl = document.getElementById(`scores-${id}`);
-  if (hasScores) {
-    const metrics = [
-      ['faithfulness', 'Faithfulness'],
-      ['answer_relevancy', 'Relevancy'],
-      ['context_precision', 'Precision'],
-    ];
-    scoresEl.innerHTML = metrics.map(([field, label]) => {
-      const v = scores[field];
-      const display = v !== null && v !== undefined ? v.toFixed(2) : '—';
-      const color = scoreColor(v);
-      return `
-        <div class="score-badge">
-          <span class="score-label">${label}</span>
-          <span class="score-val" style="color:${color}">${display}</span>
-        </div>`;
-    }).join('');
-  } else if (id !== 1) {
-    scoresEl.innerHTML = `<span class="score-note">Scores run hourly in monitoring ↓</span>`;
-  }
-
   // Sources
   const sources = result.sources || [];
   const sourcesEl = document.getElementById(`sources-${id}`);
@@ -113,6 +97,38 @@ function renderResult(result) {
     sourcesEl.innerHTML = sources.slice(0, 4).map(s =>
       `<span class="source-chip" title="${s}">${s}</span>`
     ).join('');
+  }
+}
+
+// ── Update score badges from a score event ────────────────────────────
+function updateScores(event) {
+  const id = event.config_id;
+  const scores = event.scores || {};
+  const scoresEl = document.getElementById(`scores-${id}`);
+  if (!scoresEl) return;
+
+  const METRICS = [
+    ['faithfulness',      'Faithfulness'],
+    ['answer_relevancy',  'Relevancy'],
+    ['context_precision', 'Precision'],
+  ];
+
+  const badges = METRICS
+    .filter(([field]) => scores[field] !== null && scores[field] !== undefined)
+    .map(([field, label]) => {
+      const v = scores[field];
+      const color = scoreColor(v);
+      return `<div class="score-badge">
+        <span class="score-label">${label}</span>
+        <span class="score-val" style="color:${color}">${v.toFixed(2)}</span>
+      </div>`;
+    });
+
+  if (badges.length) {
+    scoresEl.innerHTML = badges.join('');
+  } else {
+    // Config 1 — no context, no faithfulness/precision
+    scoresEl.innerHTML = `<span class="score-note">No retrieval — faithfulness N/A</span>`;
   }
 }
 
@@ -132,9 +148,9 @@ async function runComparison() {
     Running…`;
 
   resetCards();
-
-  // Scroll to results smoothly
   document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  let answersReceived = 0;
 
   try {
     const response = await fetch('/api/compare', {
@@ -143,11 +159,9 @@ async function runComparison() {
       body: JSON.stringify({ query, model: selectedModel }),
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const reader = response.body.getReader();
+    const reader  = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -157,15 +171,23 @@ async function runComparison() {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const result = JSON.parse(line.slice(6));
-            renderResult(result);
-          } catch (_) {}
-        }
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'score') {
+            updateScores(event);
+          } else {
+            renderResult(event);
+            answersReceived++;
+            if (answersReceived === 4) {
+              // All answers are in; scoring phase begins on the server
+              markScoringPending();
+            }
+          }
+        } catch (_) {}
       }
     }
   } catch (err) {
@@ -185,35 +207,44 @@ async function runComparison() {
 }
 
 // ── Monitoring charts ─────────────────────────────────────────────────
-let faithChart = null;
+let faithChart   = null;
 let latencyChart = null;
 
-function buildChartOptions(label, yMin, yMax) {
+function buildChartOptions(yLabel, yMin, yMax) {
   return {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: {
         position: 'bottom',
         labels: { color: '#94A3B8', font: { size: 11, family: 'Inter' }, boxWidth: 12, padding: 16 },
       },
       tooltip: {
-        backgroundColor: '#111827', borderColor: 'rgba(255,255,255,0.07)', borderWidth: 1,
-        titleColor: '#F1F5F9', bodyColor: '#94A3B8',
+        backgroundColor: '#111827',
+        borderColor: 'rgba(255,255,255,0.07)',
+        borderWidth: 1,
+        titleColor: '#F1F5F9',
+        bodyColor: '#94A3B8',
         callbacks: {
-          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3) ?? '—'}`,
+          label: ctx => {
+            const v = ctx.parsed.y;
+            return ` ${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '—'}`;
+          },
         },
       },
     },
     scales: {
       x: {
-        ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 8 },
-        grid: { color: 'rgba(255,255,255,0.04)' },
+        ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 },
+        grid:  { color: 'rgba(255,255,255,0.04)' },
       },
       y: {
-        min: yMin, max: yMax,
+        min: yMin,
+        max: yMax,
+        title: { display: true, text: yLabel, color: '#475569', font: { size: 10 } },
         ticks: { color: '#475569', font: { size: 10 } },
-        grid: { color: 'rgba(255,255,255,0.04)' },
+        grid:  { color: 'rgba(255,255,255,0.04)' },
       },
     },
   };
@@ -221,12 +252,11 @@ function buildChartOptions(label, yMin, yMax) {
 
 async function loadMonitoring() {
   try {
-    const res = await fetch('/api/monitoring');
+    const res  = await fetch('/api/monitoring');
     const data = await res.json();
 
-    // Meta
-    document.getElementById('last-run').textContent = data.last_run
-      ? fmtAgo(data.last_run) : '—';
+    // Meta row
+    document.getElementById('last-run').textContent = data.last_run ? fmtAgo(data.last_run) : '—';
     document.getElementById('next-run').textContent = data.next_run || '—';
 
     // Drift alerts
@@ -240,62 +270,61 @@ async function loadMonitoring() {
       driftBanner.style.display = 'none';
     }
 
-    if (!data.rows || !data.rows.length) {
+    if (!data.has_data || !data.series || !data.series.length) {
       document.getElementById('no-data-msg').style.display = 'block';
       return;
     }
     document.getElementById('no-data-msg').style.display = 'none';
 
-    // Group by config name
-    const byConfig = {};
-    for (const row of data.rows) {
-      const n = row.config_name;
-      if (!byConfig[n]) byConfig[n] = { ts: [], faith: [], latency: [] };
-      byConfig[n].ts.push(row.timestamp.slice(0, 16));
-      byConfig[n].faith.push(row.faithfulness);
-      byConfig[n].latency.push(row.latency_s);
-    }
-
-    const colorMap = {
-      'No RAG': CONFIG_COLORS[1],
-      'Dense RAG': CONFIG_COLORS[2],
-      'Hybrid RAG': CONFIG_COLORS[3],
-      'Hybrid + Rerank': CONFIG_COLORS[4],
-    };
-
-    const faithDatasets = Object.entries(byConfig).map(([name, d]) => ({
-      label: name,
-      data: d.faith,
-      borderColor: colorMap[name] || '#818CF8',
-      backgroundColor: (colorMap[name] || '#818CF8') + '22',
-      tension: 0.3, pointRadius: 3,
+    // Build Chart.js datasets from server series
+    // Faithfulness — skip Config 1 (no retrieval, always null)
+    const faithSeries = data.series.filter(s => s.config_id !== 1);
+    const faithDatasets = faithSeries.map(s => ({
+      label: s.config_name,
+      data:  s.points.map(p => ({ x: p.ts.slice(5, 16), y: p.faithfulness })),
+      borderColor:     s.color,
+      backgroundColor: s.color + '22',
+      tension: 0.35, pointRadius: 4, pointHoverRadius: 6, spanGaps: true,
     }));
 
-    const latDatasets = Object.entries(byConfig).map(([name, d]) => ({
-      label: name,
-      data: d.latency,
-      borderColor: colorMap[name] || '#818CF8',
-      backgroundColor: (colorMap[name] || '#818CF8') + '22',
-      tension: 0.3, pointRadius: 3,
+    // Answer relevancy — all 4 configs
+    const relDatasets = data.series.map(s => ({
+      label: s.config_name,
+      data:  s.points.map(p => ({ x: p.ts.slice(5, 16), y: p.answer_relevancy })),
+      borderColor:     s.color,
+      backgroundColor: s.color + '22',
+      tension: 0.35, pointRadius: 4, pointHoverRadius: 6, spanGaps: true,
     }));
 
-    const allTs = [...new Set(Object.values(byConfig).flatMap(d => d.ts))].sort();
+    // Latency — all 4 configs
+    const latDatasets = data.series.map(s => ({
+      label: s.config_name,
+      data:  s.points.map(p => ({ x: p.ts.slice(5, 16), y: p.latency })),
+      borderColor:     s.color,
+      backgroundColor: s.color + '22',
+      tension: 0.35, pointRadius: 4, pointHoverRadius: 6, spanGaps: true,
+    }));
 
-    // Destroy existing charts
-    if (faithChart) { faithChart.destroy(); faithChart = null; }
+    // X labels: union of all timestamps across all series
+    const allTs = [...new Set(
+      data.series.flatMap(s => s.points.map(p => p.ts.slice(5, 16)))
+    )].sort();
+
+    // Destroy old charts before recreating
+    if (faithChart)   { faithChart.destroy();   faithChart   = null; }
     if (latencyChart) { latencyChart.destroy(); latencyChart = null; }
 
-    faithChart = new Chart(
-      document.getElementById('faith-chart'),
-      { type: 'line', data: { labels: allTs, datasets: faithDatasets },
-        options: buildChartOptions('Faithfulness', 0, 1) }
-    );
+    faithChart = new Chart(document.getElementById('faith-chart'), {
+      type: 'line',
+      data: { labels: allTs, datasets: faithDatasets },
+      options: buildChartOptions('Faithfulness (0–1)', 0, 1),
+    });
 
-    latencyChart = new Chart(
-      document.getElementById('latency-chart'),
-      { type: 'line', data: { labels: allTs, datasets: latDatasets },
-        options: buildChartOptions('Latency (s)') }
-    );
+    latencyChart = new Chart(document.getElementById('latency-chart'), {
+      type: 'line',
+      data: { labels: allTs, datasets: latDatasets },
+      options: buildChartOptions('Latency (seconds)'),
+    });
 
   } catch (err) {
     console.error('Monitoring load failed:', err);
