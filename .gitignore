@@ -32,5 +32,9 @@ Thumbs.db
 .idea/
 .claude/
 
+# Development notes — not for the deployed repo
+DEPLOY.md
+spec.md
+
 # FAISS index — built automatically at startup from chunks.json; not committed (binary)
 *.faiss
