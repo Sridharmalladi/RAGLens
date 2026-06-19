@@ -30,5 +30,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
-*.faiss
 .claude/
+
+# FAISS index — built automatically at startup from chunks.json; not committed (binary)
+*.faiss
