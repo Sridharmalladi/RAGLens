@@ -1,40 +1,81 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
-.venv/
-venv/
-env/
+*.pyd
+*.so
+*.egg
 *.egg-info/
 dist/
 build/
+MANIFEST
+pip-wheel-metadata/
+*.spec
 
-# Env
+# ── Virtual environments ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Environment & secrets ──────────────────────────────────────────────────────
 .env
+.env.local
+.env.*.local
 
-# Runtime DB — created automatically at startup
+# ── Runtime artefacts (auto-created at startup) ────────────────────────────────
 raglens.db
+*.faiss
 
-# Raw PDFs — not needed in the repo (corpus is the built index + chunks)
-corpus/raw/*.pdf
+# ── Test & coverage ────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
 
-# Model cache (HF downloads models at runtime)
+# ── Type checkers & linters ────────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# ── Jupyter ────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── HuggingFace model cache (downloaded at runtime) ───────────────────────────
 .cache/
 *.bin
 *.safetensors
+*.ot
 
-# OS
+# ── Corpus raw files (only the built chunks.json is committed) ─────────────────
+corpus/raw/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+desktop.ini
 
-# IDE
+# ── Editors ───────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.iml
+*.swp
+*.swo
+*.tmp
+*~
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
 .claude/
 
-# Development notes — not for the deployed repo
+# ── Local dev docs (not for public repo) ──────────────────────────────────────
 DEPLOY.md
 spec.md
+INTERVIEW.md
 
-# FAISS index — built automatically at startup from chunks.json; not committed (binary)
-*.faiss
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
