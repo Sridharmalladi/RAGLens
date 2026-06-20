@@ -6,7 +6,7 @@ Called by scheduler.py on an hourly cron. Never called from user-facing paths.
 import logging
 from datetime import datetime
 
-from config import GROQ_GENERATION_MODEL, MONITORING_QUERIES
+from config import GROQ_GENERATION_MODEL, MONITORING_QUERIES, MONITORING_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def run_evaluation_cycle() -> None:
     for query in MONITORING_QUERIES:
         logger.info("Evaluating query: %s", query[:60])
         try:
-            results = run_all_configs_blocking(query)
+            results = run_all_configs_blocking(query, max_tokens=MONITORING_MAX_TOKENS)
         except Exception as e:
             logger.error("run_all_configs_blocking failed: %s", e)
             continue

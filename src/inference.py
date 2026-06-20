@@ -12,7 +12,7 @@ from config import CONFIG_NAMES, CONFIG_DESCRIPTIONS, TOP_K, RERANK_TOP_N
 
 logger = logging.getLogger(__name__)
 
-def _run_config(config_id: int, query: str, model: str | None = None) -> dict:
+def _run_config(config_id: int, query: str, model: str | None = None, max_tokens: int | None = None) -> dict:
     from src.retrieval import dense_retrieve, hybrid_retrieve, rerank
     from src.models import generate
 
@@ -38,7 +38,7 @@ def _run_config(config_id: int, query: str, model: str | None = None) -> dict:
         else:
             return _error_result(config_id, "Unknown config ID")
 
-        answer, latency = generate(query, context, model=model)
+        answer, latency = generate(query, context, model=model, max_tokens=max_tokens)
 
         return {
             "config_id": config_id,
@@ -75,13 +75,13 @@ def _error_result(config_id: int, message: str) -> dict:
     }
 
 
-def run_all_configs(query: str, model: str | None = None) -> Generator[dict, None, None]:
+def run_all_configs(query: str, model: str | None = None, max_tokens: int | None = None) -> Generator[dict, None, None]:
     """Run 4 configs sequentially, yielding each result as it completes.
     Sequential (not parallel) to stay within Groq's 6k TPM free-tier limit."""
     for config_id in range(1, 5):
-        yield _run_config(config_id, query, model=model)
+        yield _run_config(config_id, query, model=model, max_tokens=max_tokens)
 
 
-def run_all_configs_blocking(query: str, model: str | None = None) -> dict[int, dict]:
+def run_all_configs_blocking(query: str, model: str | None = None, max_tokens: int | None = None) -> dict[int, dict]:
     """Blocking version used by monitoring.py."""
-    return {r["config_id"]: r for r in run_all_configs(query, model=model)}
+    return {r["config_id"]: r for r in run_all_configs(query, model=model, max_tokens=max_tokens)}

@@ -78,7 +78,8 @@ def score(
     if not contexts:
         return {"faithfulness": None, "answer_relevancy": relevancy, "context_precision": None}
 
-    ctx = "\n\n".join(f"[{i+1}] {c}" for i, c in enumerate(contexts[:3]))
+    from config import SCORING_CONTEXT_CHARS
+    ctx = "\n\n".join(f"[{i+1}] {c[:SCORING_CONTEXT_CHARS]}" for i, c in enumerate(contexts[:3]))
 
     faithfulness = _ask(
         f"Context:\n{ctx}\n\n"

@@ -24,9 +24,11 @@ JUDGE_MODEL = "llama-3.1-8b-instant"
 JUDGE_PROVIDER = "groq"
 
 # Monitoring
-MONITORING_INTERVAL_HOURS = 1
+MONITORING_INTERVAL_HOURS = 6
 RETENTION_DAYS = 30
 DRIFT_ALERT_THRESHOLD = 0.10
+MONITORING_MAX_TOKENS = 150  # shorter answers during scheduled eval to conserve TPD budget
+SCORING_CONTEXT_CHARS = 300  # truncate each chunk before sending to judge to cut input tokens
 
 MONITORING_QUERIES = [
     "What are the main differences between dense and sparse retrieval?",

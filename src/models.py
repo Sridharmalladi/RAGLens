@@ -18,7 +18,7 @@ def _retry_wait(exc) -> float | None:
     return float(m.group(1)) + 1.0 if m else None
 
 
-def generate(query: str, context: str | None = None, model: str | None = None) -> tuple[str, float]:
+def generate(query: str, context: str | None = None, model: str | None = None, max_tokens: int | None = None) -> tuple[str, float]:
     """
     Generate an answer via Groq API.
     Returns (answer, latency_seconds).
@@ -53,7 +53,7 @@ def generate(query: str, context: str | None = None, model: str | None = None) -
                     {"role": "user", "content": user_msg},
                 ],
                 temperature=0.7,
-                max_tokens=MAX_NEW_TOKENS,
+                max_tokens=max_tokens or MAX_NEW_TOKENS,
             )
             return resp.choices[0].message.content.strip(), time.perf_counter() - start
         except RateLimitError as e:
