@@ -7,21 +7,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TOKENIZERS_PARALLELISM=false \
     HF_HOME=/app/.cache/huggingface
 
-RUN apt-get update \
-    && apt-get upgrade -y \
+RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
-# uv: 10-100x faster than pip
-RUN pip install --quiet uv
-
-# CPU-only torch — separate layer so sentence-transformers never pulls CUDA
-RUN uv pip install --system --no-cache \
-        torch==2.5.1+cpu \
+# CPU-only torch — installed before requirements.txt so pip never resolves
+# to the 2-3 GB CUDA wheel from PyPI when sentence-transformers is installed.
+RUN pip install --no-cache-dir torch \
         --index-url https://download.pytorch.org/whl/cpu
 
 COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
