@@ -23,6 +23,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
+# Silence noisy third-party loggers that flood the output with HTTP metadata pings
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub.utils._http").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
