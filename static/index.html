@@ -84,48 +84,48 @@
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c1)">1 &nbsp;No RAG</span>
             <div class="pipe-steps">
-              <span class="pipe-step pipe-llm">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="Groq's llama-3.1-8b-instant generates the answer entirely from its training knowledge. No documents are retrieved so the quality depends on what the model already knows.">LLM</span>
               <span class="pipe-out">answers from training data only</span>
             </div>
           </div>
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c2)">2 &nbsp;Dense</span>
             <div class="pipe-steps">
-              <span class="pipe-step">BGE-small</span>
+              <span class="pipe-step" data-tip="BGE-small-en-v1.5 encodes your query into a 384-dimensional vector that captures its meaning, not just its keywords.">BGE-small</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step">FAISS L2</span>
+              <span class="pipe-step" data-tip="FAISS scans all 1,665 chunk vectors and returns the ones geometrically closest to your query vector. Fast and surprisingly effective for semantic search.">FAISS L2</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-k">top-3</span>
+              <span class="pipe-step pipe-k" data-tip="Only the 3 highest scoring chunks are kept and passed as context to the LLM. More chunks means more noise, fewer means possibly missing the answer.">top-3</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-llm">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="The LLM now reads the retrieved chunks alongside your question and generates an answer grounded in that context rather than from memory alone.">LLM</span>
             </div>
           </div>
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c3)">3 &nbsp;Hybrid</span>
             <div class="pipe-steps">
-              <span class="pipe-step">BGE + BM25</span>
+              <span class="pipe-step" data-tip="Runs two retrievers in parallel. BGE-small finds semantically similar chunks while BM25 finds chunks sharing exact keywords with your query. Each catches what the other misses.">BGE + BM25</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step">α-blend</span>
+              <span class="pipe-step" data-tip="The dense and sparse scores are blended with a weight α (set to 0.5 here). This single ranked list combines the best of semantic understanding and keyword precision.">α-blend</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-k">top-3</span>
+              <span class="pipe-step pipe-k" data-tip="The top 3 chunks from the blended ranking are forwarded. Hybrid retrieval usually surfaces better candidates than dense alone, so this cutoff is more reliable.">top-3</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-llm">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="The LLM generates its answer using the hybrid-retrieved context, which tends to cover both semantically related and keyword-matching content.">LLM</span>
             </div>
           </div>
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c4)">4 &nbsp;Rerank</span>
             <div class="pipe-steps">
-              <span class="pipe-step">BGE + BM25</span>
+              <span class="pipe-step" data-tip="Same hybrid retrieval as config 3, running dense BGE-small and sparse BM25 in parallel to build a broad initial candidate pool.">BGE + BM25</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step">α-blend</span>
+              <span class="pipe-step" data-tip="Dense and sparse scores are blended at α=0.5, giving a single ranked list of candidates before the reranker takes over.">α-blend</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-k">top-6</span>
+              <span class="pipe-step pipe-k" data-tip="We intentionally retrieve 6 candidates here instead of 3. The reranker needs more options to work with so it can find the truly best chunks rather than just the top few.">top-6</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-rerank">cross-encoder</span>
+              <span class="pipe-step pipe-rerank" data-tip="BGE-reranker-base reads your query and each candidate chunk together as a pair and scores how relevant they are to each other. Far more accurate than embedding similarity alone, but slower.">cross-encoder</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-k">top-2</span>
+              <span class="pipe-step pipe-k" data-tip="After reranking, only the 2 best chunks survive. Tighter context means the LLM is less distracted by noise and tends to give more precise answers.">top-2</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step pipe-llm">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="The LLM generates its answer from just 2 carefully reranked chunks, giving it the most focused and relevant context of all four configurations.">LLM</span>
             </div>
           </div>
           <div class="pipe-legend">

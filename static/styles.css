@@ -578,6 +578,60 @@ body { min-height: 100vh; background: var(--bg); }
 }
 .section-divider-line { flex: 1; height: 1px; background: var(--border); }
 
+/* ── Pipeline step tooltips ────────────────────────────────────────── */
+[data-tip] {
+  position: relative;
+  cursor: help;
+}
+[data-tip]::before,
+[data-tip]::after {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 500;
+}
+[data-tip]::before {
+  content: attr(data-tip);
+  width: 220px;
+  padding: 9px 12px;
+  background: var(--bg-card2);
+  color: var(--text2);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.65;
+  letter-spacing: 0;
+  text-transform: none;
+  border: 1px solid var(--border-h);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.15);
+  white-space: normal;
+  text-align: left;
+}
+[data-tip]::after {
+  content: '';
+  bottom: calc(100% + 2px);
+  width: 8px;
+  height: 8px;
+  background: var(--bg-card2);
+  border-right: 1px solid var(--border-h);
+  border-bottom: 1px solid var(--border-h);
+  transform: translateX(-50%) translateY(4px) rotate(45deg);
+  border-radius: 1px;
+}
+[data-tip]:hover::before,
+[data-tip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+[data-tip]:hover::after {
+  transform: translateX(-50%) translateY(0) rotate(45deg);
+}
+
 /* ── Animations ────────────────────────────────────────────────────── */
 @keyframes fadeup {
   from { opacity: 0; transform: translateY(8px); }
