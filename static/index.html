@@ -6,13 +6,13 @@
   <meta name="description" content="Compare 4 RAG retrieval strategies side-by-side — dense, hybrid, and reranked — with live LLM-as-judge scoring." />
   <title>RAGLens — Live RAG Benchmarking</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 
-  <!-- ── Warmup banner (hidden once backend is ready) ────────────── -->
+  <!-- ── Warmup banner ─────────────────────────────────────────────── -->
   <div id="warmup-banner" style="display:none">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
          style="animation:spin 0.9s linear infinite;flex-shrink:0">
@@ -22,31 +22,51 @@
     Backend warming up — this takes ~30s on a cold start. Hang tight.
   </div>
 
-  <!-- ── Nav ─────────────────────────────────────────────────────── -->
+  <!-- ── Nav ───────────────────────────────────────────────────────── -->
   <nav class="nav">
     <div class="nav-inner">
       <div class="nav-left">
         <span class="logo">RAGLens</span>
         <span class="live-dot" title="Corpus loaded"></span>
+        <span class="corpus-pill">1,665 chunks &middot; 50 arXiv papers &middot; BGE-small-384d</span>
       </div>
-      <div class="corpus-pill">
-        1,665 chunks &middot; 50 arXiv papers &middot; BGE-small-384d
+      <div class="nav-right">
+        <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark mode" aria-label="Toggle theme">
+          <!-- moon = shown in dark mode -->
+          <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          <!-- sun = shown in light mode -->
+          <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        </button>
+        <a class="nav-gh" href="https://github.com/Sridharmalladi/RAGLens" target="_blank" rel="noopener noreferrer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.477 2 2 6.484 2 12.021c0 4.428 2.865 8.184 6.839 9.504.5.092.682-.217.682-.482 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.2 22 16.447 22 12.021 22 6.484 17.522 2 12 2z"/>
+          </svg>
+          GitHub
+        </a>
       </div>
-      <a class="nav-gh" href="https://github.com/Sridharmalladi/RAGLens" target="_blank" rel="noopener noreferrer">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.477 2 2 6.484 2 12.021c0 4.428 2.865 8.184 6.839 9.504.5.092.682-.217.682-.482 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.2 22 16.447 22 12.021 22 6.484 17.522 2 12 2z"/>
-        </svg>
-        Source
-      </a>
     </div>
   </nav>
 
-  <!-- ── Hero ────────────────────────────────────────────────────── -->
+  <!-- ── Hero ──────────────────────────────────────────────────────── -->
   <section class="hero">
     <div class="hero-content">
 
-      <div class="hero-kicker">RAG Pipeline Comparison</div>
-      <h1 class="hero-title">What does retrieval actually change?</h1>
+      <div class="hero-kicker">
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor">
+          <circle cx="6" cy="6" r="3"/>
+        </svg>
+        RAG Pipeline Comparison
+      </div>
+
+      <h1 class="hero-title">What does retrieval <span>actually change?</span></h1>
       <p class="hero-sub">
         Run one question through four pipelines simultaneously — baseline, dense, hybrid, and reranked.
         Answers stream in as they complete. Scores follow automatically.
@@ -118,7 +138,7 @@
 
       <!-- Model selector -->
       <div class="control-row">
-        <span class="field-label">Generation model</span>
+        <span class="field-label">Model</span>
         <div class="model-tabs">
           <button class="model-tab active" data-model="llama-3.1-8b-instant" onclick="selectModel(this)">
             llama-3.1-8b <span class="model-tag">fast</span>
@@ -156,20 +176,20 @@
     </div>
   </section>
 
-  <!-- ── Results ──────────────────────────────────────────────────── -->
+  <!-- ── Results ────────────────────────────────────────────────────── -->
   <section class="results-section" id="results-section" style="display:none">
     <div class="results-toolbar">
       <span class="results-label">Results</span>
       <div class="view-toggle">
-        <button class="view-btn active" id="btn-grid" onclick="setView('grid')" title="Grid">
+        <button class="view-btn active" id="btn-grid" onclick="setView('grid')" title="Grid view">
           <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor">
-            <rect x="0" y="0" width="6" height="6" rx="1"/><rect x="8" y="0" width="6" height="6" rx="1"/>
-            <rect x="0" y="8" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/>
+            <rect x="0" y="0" width="6" height="6" rx="1.5"/><rect x="8" y="0" width="6" height="6" rx="1.5"/>
+            <rect x="0" y="8" width="6" height="6" rx="1.5"/><rect x="8" y="8" width="6" height="6" rx="1.5"/>
           </svg>
         </button>
-        <button class="view-btn" id="btn-stack" onclick="setView('stack')" title="Stack">
+        <button class="view-btn" id="btn-stack" onclick="setView('stack')" title="Stack view">
           <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor">
-            <rect x="0" y="1" width="14" height="3.5" rx="1"/><rect x="0" y="5.5" width="14" height="3.5" rx="1"/><rect x="0" y="10" width="14" height="3.5" rx="1"/>
+            <rect x="0" y="1" width="14" height="3.5" rx="1.5"/><rect x="0" y="5.5" width="14" height="3.5" rx="1.5"/><rect x="0" y="10" width="14" height="3.5" rx="1.5"/>
           </svg>
         </button>
       </div>
@@ -268,7 +288,7 @@
     </div>
   </section>
 
-  <!-- ── Monitoring ───────────────────────────────────────────────── -->
+  <!-- ── Monitoring ─────────────────────────────────────────────────── -->
   <section class="monitoring-section">
     <div class="monitoring-inner">
 
@@ -323,13 +343,13 @@
       </div>
 
       <p class="no-data" id="no-data-msg" style="display:none">
-        No data yet — the first evaluation run completes within the hour.
+        No monitoring data yet — the first evaluation run completes within 6 hours.
       </p>
 
     </div>
   </section>
 
-  <!-- ── Footer ───────────────────────────────────────────────────── -->
+  <!-- ── Footer ────────────────────────────────────────────────────── -->
   <footer class="footer">
     BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; Groq llama-3.1-8b-instant &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
   </footer>

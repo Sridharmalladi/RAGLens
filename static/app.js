@@ -5,32 +5,49 @@ const ANSWER_CLAMP_CHARS = 340;
 
 let selectedModel = 'llama-3.1-8b-instant';
 
-// Per-run state
-let _fullAnswers = {};       // config_id → full answer text
-let _scoreMap   = {};        // config_id → {faithfulness, answer_relevancy, context_precision}
-let _scoresIn   = 0;         // how many score events received
+let _fullAnswers = {};
+let _scoreMap   = {};
+let _scoresIn   = 0;
 let _answersIn  = 0;
 
-// Monitoring state
 let _monitorData = null;
 let _charts      = {};
 
-// ── Model selector ────────────────────────────────────────────────
+// ── Theme ─────────────────────────────────────────────────────────────
+function _resolveTheme() {
+  const saved = localStorage.getItem('raglens-theme');
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function _applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('raglens-theme', theme);
+  // Re-render charts with updated palette
+  if (_monitorData) _renderAllCharts(_monitorData);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  _applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// ── Model selector ────────────────────────────────────────────────────
 function selectModel(btn) {
   document.querySelectorAll('.model-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   selectedModel = btn.dataset.model;
 }
 
-// ── Suggested query chip ──────────────────────────────────────────
+// ── Suggested query chip ──────────────────────────────────────────────
 function setQuery(btn) {
   document.getElementById('query-input').value = btn.textContent.trim();
   document.getElementById('query-input').focus();
 }
 
-// ── View toggle (grid / stack) ────────────────────────────────────
+// ── View toggle (grid / stack) ────────────────────────────────────────
 function setView(mode) {
-  const grid = document.getElementById('results-grid');
+  const grid     = document.getElementById('results-grid');
   const btnGrid  = document.getElementById('btn-grid');
   const btnStack = document.getElementById('btn-stack');
   if (mode === 'stack') {
@@ -44,7 +61,7 @@ function setView(mode) {
   }
 }
 
-// ── Answer expand / collapse ──────────────────────────────────────
+// ── Answer expand / collapse ──────────────────────────────────────────
 function _maybeClamp(id) {
   const el  = document.getElementById(`answer-${id}`);
   const btn = document.getElementById(`expand-${id}`);
@@ -71,7 +88,7 @@ function toggleExpand(id) {
   }
 }
 
-// ── Copy answer to clipboard ──────────────────────────────────────
+// ── Copy answer ───────────────────────────────────────────────────────
 function copyAnswer(id) {
   const text = _fullAnswers[id];
   if (!text) return;
@@ -83,7 +100,7 @@ function copyAnswer(id) {
   });
 }
 
-// ── Reset cards to skeleton state ─────────────────────────────────
+// ── Reset cards ───────────────────────────────────────────────────────
 function resetCards() {
   _fullAnswers = {}; _scoreMap = {}; _scoresIn = 0; _answersIn = 0;
   document.getElementById('results-section').style.display = 'block';
@@ -92,8 +109,6 @@ function resetCards() {
     const card = document.getElementById(`card-${i}`);
     card.classList.remove('visible', 'complete', 'best');
     card.style.boxShadow = '';
-
-    // Remove best badge if present
     const badge = card.querySelector('.best-badge');
     if (badge) badge.remove();
 
@@ -116,7 +131,6 @@ function resetCards() {
   }
 }
 
-// ── Show "Scoring…" spinner after all answers arrive ──────────────
 function markScoringPending() {
   for (let i = 1; i <= NUM_CONFIGS; i++) {
     const el = document.getElementById(`scores-${i}`);
@@ -126,7 +140,7 @@ function markScoringPending() {
   }
 }
 
-// ── Render one result card ────────────────────────────────────────
+// ── Render one result card ────────────────────────────────────────────
 function renderResult(result) {
   const id   = result.config_id;
   const card = document.getElementById(`card-${id}`);
@@ -142,14 +156,12 @@ function renderResult(result) {
     return;
   }
 
-  // Latency badge
   if (result.latency != null) {
     const lp = document.getElementById(`latency-${id}`);
     lp.textContent = result.latency.toFixed(2) + 's';
     lp.className = 'latency-pill visible';
   }
 
-  // Answer (with optional clamp)
   const answerEl = document.getElementById(`answer-${id}`);
   const fullText = result.answer || '(no answer)';
   _fullAnswers[id] = fullText;
@@ -159,7 +171,6 @@ function renderResult(result) {
   status.textContent = '✓'; status.className = 'card-status done';
   card.classList.add('complete');
 
-  // Sources
   const sources   = result.sources || [];
   const sourcesEl = document.getElementById(`sources-${id}`);
   if (sources.length) {
@@ -172,7 +183,7 @@ function renderResult(result) {
   if (_answersIn === NUM_CONFIGS) markScoringPending();
 }
 
-// ── Render score event ────────────────────────────────────────────
+// ── Render score event ────────────────────────────────────────────────
 function updateScores(event) {
   const id     = event.config_id;
   const scores = event.scores || {};
@@ -208,7 +219,7 @@ function updateScores(event) {
   if (_scoresIn === NUM_CONFIGS) _highlightBest();
 }
 
-// ── Highlight the best-scoring config ────────────────────────────
+// ── Highlight best config ─────────────────────────────────────────────
 function _highlightBest() {
   let bestId = -1, bestAvg = -1;
 
@@ -232,11 +243,10 @@ function _highlightBest() {
       <path d="M6 1l1.5 3 3.5.5-2.5 2.5.6 3.5L6 9l-3.1 1.5.6-3.5L1 4.5l3.5-.5z"/>
     </svg>
     Best`;
-  const hdr = card.querySelector('.card-header-right');
-  hdr.prepend(badge);
+  card.querySelector('.card-header-right').prepend(badge);
 }
 
-// ── Main comparison runner ────────────────────────────────────────
+// ── Main comparison runner ────────────────────────────────────────────
 async function runComparison() {
   const query = document.getElementById('query-input').value.trim();
   if (!query) return;
@@ -297,7 +307,7 @@ async function runComparison() {
   }
 }
 
-// ── Monitoring — load and render all 3 charts ─────────────────────
+// ── Monitoring charts ─────────────────────────────────────────────────
 async function loadMonitoring() {
   try {
     const res  = await fetch('/api/monitoring');
@@ -329,32 +339,47 @@ async function loadMonitoring() {
   }
 }
 
+function _chartColors() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  return {
+    tick:    light ? '#94a3b8' : '#38404f',
+    grid:    light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)',
+    tooltip: light ? '#ffffff' : '#07090f',
+    ttBorder:light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
+    ttTitle: light ? '#0f172a' : '#e2e8f0',
+    ttBody:  light ? '#475569' : '#7d8a9a',
+    legend:  light ? '#94a3b8' : '#38404f',
+  };
+}
+
 function _renderAllCharts(data) {
   const allTs = [...new Set(
     data.series.flatMap(s => s.points.map(p => p.ts.slice(5, 16)))
   )].sort();
 
+  const C = _chartColors();
+
   const CHART_DEFS = [
     {
-      id:          'chart-faithfulness',
-      field:       'faithfulness',
-      yLabel:      'Score (0–1)',
+      id:     'chart-faithfulness',
+      field:  'faithfulness',
+      yLabel: 'Score (0–1)',
       yMin: 0, yMax: 1,
-      series:      data.series.filter(s => s.config_id !== 1),
+      series: data.series.filter(s => s.config_id !== 1),
     },
     {
-      id:          'chart-relevancy',
-      field:       'answer_relevancy',
-      yLabel:      'Score (0–1)',
+      id:     'chart-relevancy',
+      field:  'answer_relevancy',
+      yLabel: 'Score (0–1)',
       yMin: 0, yMax: 1,
-      series:      data.series,
+      series: data.series,
     },
     {
-      id:          'chart-latency',
-      field:       'latency',
-      yLabel:      'Seconds',
+      id:     'chart-latency',
+      field:  'latency',
+      yLabel: 'Seconds',
       yMin: null, yMax: null,
-      series:      data.series,
+      series: data.series,
     },
   ];
 
@@ -362,16 +387,17 @@ function _renderAllCharts(data) {
     if (_charts[def.id]) { _charts[def.id].destroy(); delete _charts[def.id]; }
 
     const datasets = def.series.map(s => ({
-      label:           s.config_name,
-      data:            s.points.map(p => ({ x: p.ts.slice(5, 16), y: p[def.field] })),
-      borderColor:     s.color,
-      backgroundColor: s.color + '15',
-      borderWidth:     2,
-      tension:         0.35,
-      pointRadius:     4,
-      pointHoverRadius: 6,
-      spanGaps:        true,
-      fill:            false,
+      label:            s.config_name,
+      data:             s.points.map(p => ({ x: p.ts.slice(5, 16), y: p[def.field] })),
+      borderColor:      s.color,
+      backgroundColor:  s.color + '18',
+      borderWidth:      2,
+      tension:          0.4,
+      pointRadius:      3,
+      pointHoverRadius: 5,
+      pointBackgroundColor: s.color,
+      spanGaps:         true,
+      fill:             false,
     }));
 
     _charts[def.id] = new Chart(document.getElementById(def.id), {
@@ -385,18 +411,20 @@ function _renderAllCharts(data) {
           legend: {
             position: 'bottom',
             labels: {
-              color: '#64748b', font: { size: 11, family: 'Inter' },
-              boxWidth: 10, boxHeight: 10, padding: 14,
+              color: C.legend,
+              font: { size: 11, family: 'Inter' },
+              boxWidth: 10, boxHeight: 10, padding: 16,
               usePointStyle: true, pointStyle: 'circle',
             },
           },
           tooltip: {
-            backgroundColor: '#0c0e14',
-            borderColor: 'rgba(255,255,255,0.08)',
-            borderWidth: 1,
-            titleColor: '#e2e8f0',
-            bodyColor: '#8b95a8',
-            padding: 10,
+            backgroundColor: C.tooltip,
+            borderColor:     C.ttBorder,
+            borderWidth:     1,
+            titleColor:      C.ttTitle,
+            bodyColor:       C.ttBody,
+            padding:         12,
+            cornerRadius:    8,
             callbacks: {
               label: ctx => {
                 const v = ctx.parsed.y;
@@ -407,14 +435,14 @@ function _renderAllCharts(data) {
         },
         scales: {
           x: {
-            ticks: { color: '#404859', font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 },
-            grid:  { color: 'rgba(255,255,255,0.03)' },
+            ticks: { color: C.tick, font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 },
+            grid:  { color: C.grid },
           },
           y: {
             min: def.yMin, max: def.yMax,
-            title: { display: true, text: def.yLabel, color: '#404859', font: { size: 10 } },
-            ticks: { color: '#404859', font: { size: 10 } },
-            grid:  { color: 'rgba(255,255,255,0.03)' },
+            title: { display: true, text: def.yLabel, color: C.tick, font: { size: 10 } },
+            ticks: { color: C.tick, font: { size: 10 } },
+            grid:  { color: C.grid },
           },
         },
       },
@@ -422,10 +450,9 @@ function _renderAllCharts(data) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 function _fmtAgo(iso) {
   try {
-    // Server stores UTC without 'Z' — append it so Date parses correctly
     const ts   = iso.endsWith('Z') ? iso : iso + 'Z';
     const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
     if (mins < 0) return 'just now';
@@ -433,7 +460,7 @@ function _fmtAgo(iso) {
   } catch (_) { return iso; }
 }
 
-// ── Warmup poller ─────────────────────────────────────────────────
+// ── Warmup poller ─────────────────────────────────────────────────────
 async function _checkReady() {
   try {
     const r = await fetch('/api/health');
@@ -462,8 +489,9 @@ async function _initWarmup() {
   }, 3000);
 }
 
-// ── Init ──────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  _applyTheme(_resolveTheme());
   _initWarmup();
   loadMonitoring();
 });
