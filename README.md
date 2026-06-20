@@ -15,9 +15,10 @@ pinned: false
 **Run a query. Watch 4 RAG strategies answer it simultaneously. See exactly which one wins — and why.**
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.1-F55036?style=flat-square)](https://groq.com)
 [![FAISS](https://img.shields.io/badge/FAISS-Meta_AI-0467DF?style=flat-square)](https://github.com/facebookresearch/faiss)
+[![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FFD21E?style=flat-square)](https://huggingface.co/spaces/Malladi05/raglens)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
 
 </div>
@@ -125,11 +126,17 @@ Corpus        50 arXiv papers  ·  RAG & LLM evaluation
 
 ---
 
+## Live Demo
+
+**[huggingface.co/spaces/Malladi05/raglens](https://huggingface.co/spaces/Malladi05/raglens)**
+
+---
+
 ## Quickstart
 
 ```bash
-git clone https://github.com/your-username/raglens
-cd raglens
+git clone https://github.com/Sridharmalladi/RAGLens
+cd RAGLens
 
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -141,6 +148,17 @@ uvicorn main:app --reload --port 7860
 → Open **http://localhost:7860**
 
 > Get a free Groq key at [console.groq.com](https://console.groq.com) — no credit card required.
+
+---
+
+## Deployment
+
+Deployed on Hugging Face Spaces using Docker (`sdk: docker`).
+
+- Base image: `python:3.11-slim-bookworm`
+- CPU-only torch (no GPU needed)
+- BGE embeddings pre-computed and committed (`corpus/embeddings.json`) — FAISS index builds in ~1 s at startup instead of 7+ min
+- All models (BGE-small, BGE-reranker) download once at container start via the warmup thread; a banner in the UI shows progress
 
 ---
 
