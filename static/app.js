@@ -165,7 +165,7 @@ function renderResult(result) {
   const answerEl = document.getElementById(`answer-${id}`);
   const fullText = result.answer || '(no answer)';
   _fullAnswers[id] = fullText;
-  answerEl.textContent = fullText;
+  answerEl.innerHTML = _renderMarkdown(fullText);
   _maybeClamp(id);
 
   status.textContent = '✓'; status.className = 'card-status done';
@@ -219,13 +219,33 @@ function updateScores(event) {
   if (_scoresIn === NUM_CONFIGS) _highlightBest();
 }
 
+// ── Lightweight markdown renderer (bold, italic, inline-code only) ────
+function _renderMarkdown(text) {
+  // Escape HTML first to prevent XSS, then selectively re-introduce tags
+  const esc = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return esc
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g,     '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,         '<em>$1</em>')
+    .replace(/`([^`]+)`/g,         '<code>$1</code>')
+    .replace(/\n\n+/g,             '</p><p>')
+    .replace(/^/,                  '<p>')
+    .replace(/$/,                  '</p>');
+}
+
 // ── Highlight best config ─────────────────────────────────────────────
 function _highlightBest() {
   let bestId = -1, bestAvg = -1;
 
-  for (let id = 1; id <= NUM_CONFIGS; id++) {
+  // Only consider RAG configs (2-4) that have faithfulness scores.
+  // Config 1 (No RAG) only has relevancy, so its 1-metric average would
+  // always beat multi-metric configs unfairly.
+  for (let id = 2; id <= NUM_CONFIGS; id++) {
     const s = _scoreMap[id];
-    if (!s) continue;
+    if (!s || s.faithfulness == null) continue;
     const vals = [s.faithfulness, s.answer_relevancy, s.context_precision].filter(v => v != null);
     if (!vals.length) continue;
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
