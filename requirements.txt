@@ -1,5 +1,6 @@
-# Embeddings & retrieval — torch required by sentence-transformers (BGE models, ~400 MB)
-torch>=2.5.0
+# Embeddings & retrieval
+# torch is installed by the Dockerfile directly from the CPU-only wheel index
+# (do NOT add torch here — it would pull the 2-3 GB CUDA build from PyPI)
 sentence-transformers>=3.1.0
 faiss-cpu>=1.8.0
 rank_bm25>=0.2.2
