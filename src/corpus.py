@@ -20,25 +20,44 @@ _chunks: list[dict] | None = None
 _load_lock = threading.Lock()
 
 
-def _build_index(chunks: list[dict], index_path: str) -> faiss.Index:
-    """Encode all chunks with BGE-small and build a flat L2 FAISS index.
-    Uses the shared _get_embedder() singleton so there is never more than
-    one SentenceTransformer load in flight at the same time."""
-    from src.retrieval import _get_embedder  # thread-safe singleton with lock
+def _load_precomputed_embeddings(embeddings_path: str) -> np.ndarray | None:
+    """Load pre-computed embeddings from corpus/embeddings.json if present.
+    Avoids running the encoder at startup — reduces cold-start from ~7 min to ~1 s."""
+    if not os.path.exists(embeddings_path):
+        return None
+    import base64, json
+    with open(embeddings_path) as f:
+        payload = json.load(f)
+    arr = np.frombuffer(base64.b64decode(payload["data"]), dtype=payload["dtype"])
+    return arr.reshape(payload["shape"])
 
-    logger.info("FAISS index not found — building from %d chunks (one-time, ~60s)…", len(chunks))
-    embedder = _get_embedder()
-    texts = [c["text"] for c in chunks]
-    embeddings = embedder.encode(
-        texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True
-    )
+
+def _build_index(chunks: list[dict], index_path: str) -> faiss.Index:
+    """Build a flat L2 FAISS index from chunk embeddings.
+    Uses pre-computed embeddings from corpus/embeddings.json when available
+    (instant). Falls back to encoding with BGE-small if the file is missing."""
+    from config import EMBEDDINGS_PATH
+
+    embeddings = _load_precomputed_embeddings(EMBEDDINGS_PATH)
+    if embeddings is not None:
+        logger.info("Loading pre-computed embeddings (%d chunks, dim=%d)…",
+                    embeddings.shape[0], embeddings.shape[1])
+    else:
+        from src.retrieval import _get_embedder
+        logger.info("FAISS index not found — building from %d chunks (one-time, ~60s)…", len(chunks))
+        embedder = _get_embedder()
+        texts = [c["text"] for c in chunks]
+        embeddings = embedder.encode(
+            texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True
+        )
+
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings.astype(np.float32))
 
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     faiss.write_index(index, index_path)
-    logger.info("FAISS index built and saved to %s (dim=%d)", index_path, dim)
+    logger.info("FAISS index ready (dim=%d, %d chunks)", dim, len(chunks))
     return index
 
 

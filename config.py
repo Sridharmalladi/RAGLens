@@ -16,6 +16,7 @@ HYBRID_ALPHA = 0.5
 # Paths
 FAISS_INDEX_PATH = "corpus/index.faiss"
 CHUNKS_PATH = "corpus/processed/chunks.json"
+EMBEDDINGS_PATH = "corpus/embeddings.json"
 DB_PATH = os.environ.get("DB_PATH", "raglens.db")
 
 # Evaluation judge (same Groq key, different role)
