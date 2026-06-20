@@ -12,40 +12,19 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
-# uv: Rust-based pip replacement — resolves + installs 10-100x faster than pip
+# uv: 10-100x faster than pip
 RUN pip install --quiet uv
 
-# ── 1. CPU-only torch (~200 MB vs 2-3 GB CUDA default) ──────────────────────
+# CPU-only torch — separate layer so sentence-transformers never pulls CUDA
 RUN uv pip install --system --no-cache \
         torch==2.5.1+cpu \
         --index-url https://download.pytorch.org/whl/cpu
 
-# ── 2. Remaining app dependencies ────────────────────────────────────────────
 COPY requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
-# ── 3. Pre-download BGE models ───────────────────────────────────────────────
-# BEFORE "COPY . ." — this layer is cached on every code-only push.
-# Only re-runs when requirements.txt or torch version change.
-RUN python - <<'PY'
-from sentence_transformers import SentenceTransformer, CrossEncoder
-SentenceTransformer("BAAI/bge-small-en-v1.5")
-CrossEncoder("BAAI/bge-reranker-base")
-print("Models cached.")
-PY
-
-# ── 4. Source code (invalidated on every push; layers above stay cached) ─────
 COPY . .
 
-# ── 5. Pre-build FAISS index (needs corpus/processed/chunks.json) ────────────
-RUN GROQ_API_KEY=build-placeholder python - <<'PY'
-from src.corpus import get_chunks, get_index
-chunks = get_chunks()
-index  = get_index()
-print(f"FAISS ready — {len(chunks)} chunks, dim={index.d}")
-PY
-
-# Non-root user — UID 1000 is what HF Spaces runs Docker containers as
 RUN useradd -m -u 1000 user && chown -R user:user /app
 USER user
 
