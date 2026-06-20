@@ -27,6 +27,9 @@ ENV/
 raglens.db
 *.faiss
 
+# ── Tests (stale — written for old local-model API, not current Groq version) ──
+tests/
+
 # ── Test & coverage ────────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
@@ -40,6 +43,7 @@ htmlcov/
 
 # ── Jupyter ────────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
+*.ipynb
 
 # ── HuggingFace model cache (downloaded at runtime) ───────────────────────────
 .cache/
