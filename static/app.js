@@ -433,5 +433,37 @@ function _fmtAgo(iso) {
   } catch (_) { return iso; }
 }
 
+// ── Warmup poller ─────────────────────────────────────────────────
+async function _checkReady() {
+  try {
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    return d.status === 'ok' && d.corpus_ready === true;
+  } catch (_) { return false; }
+}
+
+async function _initWarmup() {
+  const banner = document.getElementById('warmup-banner');
+  const btn    = document.getElementById('run-btn');
+  const ready  = await _checkReady();
+  if (ready) return;
+
+  banner.style.display = 'flex';
+  btn.disabled = true;
+  btn.title = 'Waiting for backend…';
+
+  const iv = setInterval(async () => {
+    if (await _checkReady()) {
+      clearInterval(iv);
+      banner.style.display = 'none';
+      btn.disabled = false;
+      btn.title = '';
+    }
+  }, 3000);
+}
+
 // ── Init ──────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', loadMonitoring);
+document.addEventListener('DOMContentLoaded', () => {
+  _initWarmup();
+  loadMonitoring();
+});

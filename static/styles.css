@@ -1,3 +1,12 @@
+/* ── Warmup banner ───────────────────────────────────────────────── */
+#warmup-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  display: flex; align-items: center; gap: 10px; justify-content: center;
+  padding: 10px 20px;
+  background: #1a1d28; border-bottom: 1px solid rgba(99,102,241,0.3);
+  font-size: 13px; color: #94a3b8;
+}
+
 /* ── Reset ───────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

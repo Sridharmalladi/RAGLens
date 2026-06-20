@@ -24,6 +24,18 @@ CrossEncoder("BAAI/bge-reranker-base")
 print("All models cached.")
 PY
 
+# Pre-build FAISS index from chunks.json so startup is instant (no cold-build delay).
+RUN python - <<'PY'
+import os
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("GROQ_API_KEY", "build-placeholder")
+print("Building FAISS index from chunks.json …")
+from src.corpus import get_index, get_chunks
+chunks = get_chunks()
+index  = get_index()
+print(f"FAISS index ready — {len(chunks)} chunks, dim={index.d}")
+PY
+
 EXPOSE 7860
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
