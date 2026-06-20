@@ -214,11 +214,23 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Gradio — satisfies the Hugging Face Spaces `sdk: gradio` requirement.
+# The actual UI is our custom static HTML; Gradio is mounted at /gradio and
+# its launch() call starts the uvicorn server that serves everything below.
+# ---------------------------------------------------------------------------
+import gradio as gr
+
+_demo = gr.Blocks(title="RAGLens")
+with _demo:
+    pass
+
+gr.mount_gradio_app(app, _demo, path="/gradio")
+
+# ---------------------------------------------------------------------------
 # Static frontend — must be last so API routes take priority
 # ---------------------------------------------------------------------------
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    _demo.launch(server_name="0.0.0.0", server_port=7860)

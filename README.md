@@ -3,7 +3,9 @@ title: RAGLens
 emoji: 🔍
 colorFrom: blue
 colorTo: purple
-sdk: docker
+sdk: gradio
+sdk_version: 4.44.0
+app_file: main.py
 app_port: 7860
 pinned: false
 ---

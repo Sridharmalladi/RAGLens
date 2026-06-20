@@ -9,6 +9,9 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.14.0
 python-multipart>=0.0.7
 
+# HF Spaces deployment (sdk: gradio) — mounts our FastAPI app so HF can serve it
+gradio>=4.44.0
+
 # Scheduling & storage
 apscheduler>=3.10.0
 
