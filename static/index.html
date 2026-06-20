@@ -3,41 +3,133 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RAGLens</title>
+  <meta name="description" content="Compare 4 RAG retrieval strategies side-by-side — dense, hybrid, and reranked — with live LLM-as-judge scoring." />
+  <title>RAGLens — Live RAG Benchmarking</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 
+  <!-- ── Nav ─────────────────────────────────────────────────────── -->
   <nav class="nav">
     <div class="nav-inner">
-      <span class="logo">RAGLens</span>
-      <span class="nav-note">50 arXiv papers · 4 retrieval strategies · Groq</span>
+      <div class="nav-left">
+        <span class="logo">RAGLens</span>
+        <span class="live-dot" title="Corpus loaded"></span>
+      </div>
+      <div class="corpus-pill">
+        1,665 chunks &middot; 50 arXiv papers &middot; BGE-small-384d
+      </div>
+      <a class="nav-gh" href="https://github.com/Sridharmalladi/RAGLens" target="_blank" rel="noopener noreferrer">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.484 2 12.021c0 4.428 2.865 8.184 6.839 9.504.5.092.682-.217.682-.482 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.2 22 16.447 22 12.021 22 6.484 17.522 2 12 2z"/>
+        </svg>
+        Source
+      </a>
     </div>
   </nav>
 
+  <!-- ── Hero ────────────────────────────────────────────────────── -->
   <section class="hero">
     <div class="hero-content">
-      <h1 class="hero-title">What does retrieval actually change?</h1>
-      <p class="hero-sub">Run the same question through four pipelines — no retrieval, dense, hybrid, and reranked — and compare answers and faithfulness scores side by side.</p>
 
-      <div class="model-row">
-        <span class="field-label">Model</span>
+      <div class="hero-kicker">RAG Pipeline Comparison</div>
+      <h1 class="hero-title">What does retrieval actually change?</h1>
+      <p class="hero-sub">
+        Run one question through four pipelines simultaneously — baseline, dense, hybrid, and reranked.
+        Answers stream in as they complete. Scores follow automatically.
+      </p>
+
+      <!-- Pipeline explainer -->
+      <details class="pipeline-details">
+        <summary class="pipeline-summary">
+          <svg class="chevron" width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 4l3.5 3.5L9 4"/>
+          </svg>
+          How the 4 configs work
+        </summary>
+        <div class="pipeline-body">
+          <div class="pipe-row">
+            <span class="pipe-id" style="color:var(--c1)">1 &nbsp;No RAG</span>
+            <div class="pipe-steps">
+              <span class="pipe-step pipe-llm">LLM</span>
+              <span class="pipe-out">answers from training data only</span>
+            </div>
+          </div>
+          <div class="pipe-row">
+            <span class="pipe-id" style="color:var(--c2)">2 &nbsp;Dense</span>
+            <div class="pipe-steps">
+              <span class="pipe-step">BGE-small</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step">FAISS L2</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-k">top-3</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-llm">LLM</span>
+            </div>
+          </div>
+          <div class="pipe-row">
+            <span class="pipe-id" style="color:var(--c3)">3 &nbsp;Hybrid</span>
+            <div class="pipe-steps">
+              <span class="pipe-step">BGE + BM25</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step">α-blend</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-k">top-3</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-llm">LLM</span>
+            </div>
+          </div>
+          <div class="pipe-row">
+            <span class="pipe-id" style="color:var(--c4)">4 &nbsp;Rerank</span>
+            <div class="pipe-steps">
+              <span class="pipe-step">BGE + BM25</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step">α-blend</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-k">top-6</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-rerank">cross-encoder</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-k">top-2</span>
+              <span class="pipe-arrow">›</span>
+              <span class="pipe-step pipe-llm">LLM</span>
+            </div>
+          </div>
+          <div class="pipe-legend">
+            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> Groq llama-3.1-8b-instant</span>
+            <span><span class="pipe-step pipe-rerank" style="font-size:10px;padding:2px 6px">cross-encoder</span> BGE-reranker-base</span>
+            <span><span class="pipe-step pipe-k" style="font-size:10px;padding:2px 6px">top-k</span> chunk count</span>
+          </div>
+        </div>
+      </details>
+
+      <!-- Model selector -->
+      <div class="control-row">
+        <span class="field-label">Generation model</span>
         <div class="model-tabs">
-          <button class="model-tab active" data-model="llama-3.1-8b-instant" onclick="selectModel(this)">llama-3.1-8b <span class="model-note">fast</span></button>
-          <button class="model-tab" data-model="llama-3.3-70b-versatile" onclick="selectModel(this)">llama-3.3-70b <span class="model-note">capable</span></button>
-          <button class="model-tab" data-model="compound-beta" onclick="selectModel(this)">compound-β <span class="model-note">agentic</span></button>
+          <button class="model-tab active" data-model="llama-3.1-8b-instant" onclick="selectModel(this)">
+            llama-3.1-8b <span class="model-tag">fast</span>
+          </button>
+          <button class="model-tab" data-model="llama-3.3-70b-versatile" onclick="selectModel(this)">
+            llama-3.3-70b <span class="model-tag">capable</span>
+          </button>
+          <button class="model-tab" data-model="compound-beta" onclick="selectModel(this)">
+            compound-β <span class="model-tag">agentic</span>
+          </button>
         </div>
       </div>
 
+      <!-- Suggested queries -->
       <div class="chips-row">
         <button class="chip" onclick="setQuery(this)">How does hybrid retrieval combine dense and sparse search?</button>
         <button class="chip" onclick="setQuery(this)">What evaluation metrics matter most for production RAG?</button>
         <button class="chip" onclick="setQuery(this)">When does fine-tuning beat better retrieval?</button>
       </div>
 
+      <!-- Query input -->
       <div class="query-box">
         <textarea
           id="query-input"
@@ -47,118 +139,189 @@
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runComparison();}"
         ></textarea>
         <button id="run-btn" class="run-btn" onclick="runComparison()">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l10 6-10 6V2z"/></svg>
-          Run
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l10 6-10 6V2z"/></svg>
+          Run 4 configs
         </button>
       </div>
     </div>
   </section>
 
+  <!-- ── Results ──────────────────────────────────────────────────── -->
   <section class="results-section" id="results-section" style="display:none">
-    <div class="results-grid">
+    <div class="results-toolbar">
+      <span class="results-label">Results</span>
+      <div class="view-toggle">
+        <button class="view-btn active" id="btn-grid" onclick="setView('grid')" title="Grid">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor">
+            <rect x="0" y="0" width="6" height="6" rx="1"/><rect x="8" y="0" width="6" height="6" rx="1"/>
+            <rect x="0" y="8" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/>
+          </svg>
+        </button>
+        <button class="view-btn" id="btn-stack" onclick="setView('stack')" title="Stack">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor">
+            <rect x="0" y="1" width="14" height="3.5" rx="1"/><rect x="0" y="5.5" width="14" height="3.5" rx="1"/><rect x="0" y="10" width="14" height="3.5" rx="1"/>
+          </svg>
+        </button>
+      </div>
+    </div>
 
-      <div class="config-card" id="card-1">
+    <div class="results-grid" id="results-grid">
+
+      <!-- Card 1 — No RAG -->
+      <div class="config-card" id="card-1" style="--cc:#6B7280">
         <div class="card-header">
           <span class="config-dot" style="background:#6B7280"></span>
           <span class="config-name">No RAG</span>
-          <span class="card-status" id="status-1"></span>
+          <span class="config-sub">training data only</span>
+          <div class="card-header-right">
+            <span class="latency-pill" id="latency-1"></span>
+            <button class="copy-btn" id="copy-1" onclick="copyAnswer(1)" title="Copy answer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <span class="card-status" id="status-1"></span>
+          </div>
         </div>
-        <p class="config-desc" id="desc-1">Baseline — model answers from training knowledge only</p>
         <div class="card-answer" id="answer-1">
-          <div class="skeleton-line"></div>
-          <div class="skeleton-line short"></div>
-          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
         </div>
-        <div class="card-metrics" id="scores-1"></div>
+        <button class="expand-btn" id="expand-1" onclick="toggleExpand(1)" style="display:none">Show more</button>
+        <div class="card-scores" id="scores-1"></div>
         <div class="card-sources" id="sources-1"></div>
       </div>
 
-      <div class="config-card" id="card-2">
+      <!-- Card 2 — Dense RAG -->
+      <div class="config-card" id="card-2" style="--cc:#60A5FA">
         <div class="card-header">
           <span class="config-dot" style="background:#60A5FA"></span>
           <span class="config-name">Dense RAG</span>
-          <span class="card-status" id="status-2"></span>
+          <span class="config-sub">BGE-small · FAISS</span>
+          <div class="card-header-right">
+            <span class="latency-pill" id="latency-2"></span>
+            <button class="copy-btn" id="copy-2" onclick="copyAnswer(2)" title="Copy answer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <span class="card-status" id="status-2"></span>
+          </div>
         </div>
-        <p class="config-desc" id="desc-2">FAISS dense retrieval — BGE-small embeddings, top-3 chunks</p>
         <div class="card-answer" id="answer-2">
-          <div class="skeleton-line"></div>
-          <div class="skeleton-line short"></div>
-          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
         </div>
-        <div class="card-metrics" id="scores-2"></div>
+        <button class="expand-btn" id="expand-2" onclick="toggleExpand(2)" style="display:none">Show more</button>
+        <div class="card-scores" id="scores-2"></div>
         <div class="card-sources" id="sources-2"></div>
       </div>
 
-      <div class="config-card" id="card-3">
+      <!-- Card 3 — Hybrid RAG -->
+      <div class="config-card" id="card-3" style="--cc:#FBBF24">
         <div class="card-header">
           <span class="config-dot" style="background:#FBBF24"></span>
           <span class="config-name">Hybrid RAG</span>
-          <span class="card-status" id="status-3"></span>
+          <span class="config-sub">Dense + BM25</span>
+          <div class="card-header-right">
+            <span class="latency-pill" id="latency-3"></span>
+            <button class="copy-btn" id="copy-3" onclick="copyAnswer(3)" title="Copy answer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <span class="card-status" id="status-3"></span>
+          </div>
         </div>
-        <p class="config-desc" id="desc-3">Dense + BM25 sparse, top-3 chunks</p>
         <div class="card-answer" id="answer-3">
-          <div class="skeleton-line"></div>
-          <div class="skeleton-line short"></div>
-          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
         </div>
-        <div class="card-metrics" id="scores-3"></div>
+        <button class="expand-btn" id="expand-3" onclick="toggleExpand(3)" style="display:none">Show more</button>
+        <div class="card-scores" id="scores-3"></div>
         <div class="card-sources" id="sources-3"></div>
       </div>
 
-      <div class="config-card" id="card-4">
+      <!-- Card 4 — Hybrid + Rerank -->
+      <div class="config-card" id="card-4" style="--cc:#34D399">
         <div class="card-header">
           <span class="config-dot" style="background:#34D399"></span>
           <span class="config-name">Hybrid + Rerank</span>
-          <span class="card-status" id="status-4"></span>
+          <span class="config-sub">+ cross-encoder</span>
+          <div class="card-header-right">
+            <span class="latency-pill" id="latency-4"></span>
+            <button class="copy-btn" id="copy-4" onclick="copyAnswer(4)" title="Copy answer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <span class="card-status" id="status-4"></span>
+          </div>
         </div>
-        <p class="config-desc" id="desc-4">Dense + BM25, then BGE cross-encoder reranking, top-2 kept</p>
         <div class="card-answer" id="answer-4">
-          <div class="skeleton-line"></div>
-          <div class="skeleton-line short"></div>
-          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
         </div>
-        <div class="card-metrics" id="scores-4"></div>
+        <button class="expand-btn" id="expand-4" onclick="toggleExpand(4)" style="display:none">Show more</button>
+        <div class="card-scores" id="scores-4"></div>
         <div class="card-sources" id="sources-4"></div>
       </div>
 
     </div>
   </section>
 
+  <!-- ── Monitoring ───────────────────────────────────────────────── -->
   <section class="monitoring-section">
     <div class="monitoring-inner">
+
       <div class="monitoring-header">
         <div>
           <h2 class="monitoring-title">Performance over time</h2>
-          <p class="monitoring-sub">Hourly background job runs 3 fixed queries across all 4 configs and logs faithfulness and latency.</p>
+          <p class="monitoring-sub">Hourly background job — 3 fixed probe queries across all 4 configs, scored and logged automatically.</p>
         </div>
         <div class="monitoring-meta">
-          <span class="meta-pair"><span class="meta-k">Last run</span><span class="meta-v" id="last-run">—</span></span>
-          <span class="meta-pair"><span class="meta-k">Next run</span><span class="meta-v" id="next-run">—</span></span>
-          <button class="text-btn" onclick="loadMonitoring()">Refresh</button>
+          <div class="meta-pair">
+            <span class="meta-k">Last run</span>
+            <span class="meta-v" id="last-run">—</span>
+          </div>
+          <div class="meta-pair">
+            <span class="meta-k">Next run</span>
+            <span class="meta-v" id="next-run">—</span>
+          </div>
+          <button class="text-btn" onclick="loadMonitoring()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Refresh
+          </button>
         </div>
       </div>
 
       <div class="drift-banner" id="drift-banner" style="display:none"></div>
 
       <div class="charts-grid">
-        <div class="chart-card">
-          <div class="chart-label">Faithfulness — Configs 2–4 (0 to 1)</div>
-          <canvas id="faith-chart"></canvas>
+        <div class="chart-wrap">
+          <div class="chart-label">
+            <span class="chart-title">Faithfulness</span>
+            <span class="chart-note">Configs 2–4 · grounded in retrieved context</span>
+          </div>
+          <canvas id="chart-faithfulness"></canvas>
         </div>
-        <div class="chart-card">
-          <div class="chart-label">Response latency — seconds</div>
-          <canvas id="latency-chart"></canvas>
+        <div class="chart-wrap">
+          <div class="chart-label">
+            <span class="chart-title">Answer Relevancy</span>
+            <span class="chart-note">All configs · how well the answer addresses the question</span>
+          </div>
+          <canvas id="chart-relevancy"></canvas>
+        </div>
+        <div class="chart-wrap chart-latency">
+          <div class="chart-label">
+            <span class="chart-title">Response Latency</span>
+            <span class="chart-note">All configs · seconds per query</span>
+          </div>
+          <canvas id="chart-latency"></canvas>
         </div>
       </div>
 
       <p class="no-data" id="no-data-msg" style="display:none">
-        No data yet. The first evaluation runs automatically in under an hour.
+        No data yet — the first evaluation run completes within the hour.
       </p>
+
     </div>
   </section>
 
+  <!-- ── Footer ───────────────────────────────────────────────────── -->
   <footer class="footer">
-    BGE-small embeddings · FAISS · BM25 · BGE-reranker · Groq llama-3.1-8b-instant
+    BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; Groq llama-3.1-8b-instant &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
   </footer>
 
   <script src="/app.js"></script>
