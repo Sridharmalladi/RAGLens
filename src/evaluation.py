@@ -1,5 +1,5 @@
 """
-LLM-as-judge scoring via Groq API (llama-3.1-8b-instant).
+LLM-as-judge scoring via Groq API (openai/gpt-oss-20b).
 Three metrics matching RAGAS axes: faithfulness, answer_relevancy, context_precision.
 answer_relevancy runs for all configs; faithfulness + context_precision require context.
 """

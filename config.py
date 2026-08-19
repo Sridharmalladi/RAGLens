@@ -1,7 +1,7 @@
 import os
 
 # Generation — Groq API (no local model loading, sub-second responses)
-GROQ_GENERATION_MODEL = "llama-3.1-8b-instant"
+GROQ_GENERATION_MODEL = "openai/gpt-oss-20b"
 MAX_NEW_TOKENS = 300
 
 # Embeddings & retrieval (local, small models ~400 MB total)
@@ -20,7 +20,7 @@ EMBEDDINGS_PATH = "corpus/embeddings.json"
 DB_PATH = os.environ.get("DB_PATH", "raglens.db")
 
 # Evaluation judge (same Groq key, different role)
-JUDGE_MODEL = "llama-3.1-8b-instant"
+JUDGE_MODEL = "openai/gpt-oss-20b"
 JUDGE_PROVIDER = "groq"
 
 # Monitoring

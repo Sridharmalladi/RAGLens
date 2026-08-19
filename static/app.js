@@ -3,7 +3,7 @@
 const NUM_CONFIGS = 4;
 const ANSWER_CLAMP_CHARS = 340;
 
-let selectedModel = 'llama-3.1-8b-instant';
+let selectedModel = 'openai/gpt-oss-20b';
 
 let _fullAnswers = {};
 let _scoreMap   = {};

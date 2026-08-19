@@ -114,7 +114,7 @@ Scored automatically by Groq (no labelled data needed).
 ## Stack
 
 ```
-Generation    Groq  ·  llama-3.1-8b-instant  ·  sub-second responses
+Generation    Groq  ·  openai/gpt-oss-20b  ·  sub-second responses
 Embeddings    BAAI/bge-small-en-v1.5  ·  384-dim  ·  ~130 MB
 Reranker      BAAI/bge-reranker-base  ·  cross-encoder
 Index         FAISS IndexFlatL2  ·  exact NN  ·  1,665 chunks

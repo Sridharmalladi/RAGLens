@@ -84,7 +84,7 @@
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c1)">1 &nbsp;No RAG</span>
             <div class="pipe-steps">
-              <span class="pipe-step pipe-llm" data-tip="Groq's llama-3.1-8b-instant generates the answer entirely from its training knowledge. No documents are retrieved so the quality depends on what the model already knows.">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="Groq's gpt-oss-20b generates the answer entirely from its training knowledge. No documents are retrieved so the quality depends on what the model already knows.">LLM</span>
               <span class="pipe-out">answers from training data only</span>
             </div>
           </div>
@@ -129,7 +129,7 @@
             </div>
           </div>
           <div class="pipe-legend">
-            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> Groq llama-3.1-8b-instant</span>
+            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> Groq gpt-oss-20b</span>
             <span><span class="pipe-step pipe-rerank" style="font-size:10px;padding:2px 6px">cross-encoder</span> BGE-reranker-base</span>
             <span><span class="pipe-step pipe-k" style="font-size:10px;padding:2px 6px">top-k</span> chunk count</span>
           </div>
@@ -140,14 +140,11 @@
       <div class="control-row">
         <span class="field-label">Model</span>
         <div class="model-tabs">
-          <button class="model-tab active" data-model="llama-3.1-8b-instant" onclick="selectModel(this)">
-            llama-3.1-8b <span class="model-tag">fast</span>
+          <button class="model-tab active" data-model="openai/gpt-oss-20b" onclick="selectModel(this)">
+            gpt-oss-20b <span class="model-tag">fast</span>
           </button>
-          <button class="model-tab" data-model="llama-3.3-70b-versatile" onclick="selectModel(this)">
-            llama-3.3-70b <span class="model-tag">capable</span>
-          </button>
-          <button class="model-tab" data-model="compound-beta" onclick="selectModel(this)">
-            compound-β <span class="model-tag">agentic</span>
+          <button class="model-tab" data-model="openai/gpt-oss-120b" onclick="selectModel(this)">
+            gpt-oss-120b <span class="model-tag">capable</span>
           </button>
         </div>
       </div>
@@ -351,7 +348,7 @@
 
   <!-- ── Footer ────────────────────────────────────────────────────── -->
   <footer class="footer">
-    BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; Groq llama-3.1-8b-instant &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
+    BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; Groq gpt-oss-20b &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
   </footer>
 
   <script src="/app.js"></script>
