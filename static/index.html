@@ -63,13 +63,15 @@
         <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor">
           <circle cx="6" cy="6" r="3"/>
         </svg>
-        RAG Pipeline Comparison
+        Live comparison
       </div>
 
-      <h1 class="hero-title">What does retrieval <span>actually change?</span></h1>
+      <h1 class="hero-title">Does retrieval <span>actually help?</span></h1>
       <p class="hero-sub">
-        Run one question through four pipelines at once: baseline, dense, hybrid, and reranked.
-        Answers stream in as they complete. Scores follow automatically.
+        Ask anything. The same question runs four ways at once: straight from the model,
+        then three setups that first search a shelf of 50 research papers. The answers come
+        in side by side, and a second model grades each one so you can see what the search
+        step bought you, if anything.
       </p>
 
       <!-- Pipeline explainer -->
@@ -84,7 +86,7 @@
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c1)">1 &nbsp;No RAG</span>
             <div class="pipe-steps">
-              <span class="pipe-step pipe-llm" data-tip="gpt-oss-20b, served through OpenRouter, generates the answer from its training knowledge alone. No documents are retrieved, so quality depends on what the model already knows.">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="The model you pick, served through OpenRouter, answers from its training knowledge alone. No documents are retrieved, so quality depends on what the model already knows.">LLM</span>
               <span class="pipe-out">answers from training data only</span>
             </div>
           </div>
@@ -129,7 +131,7 @@
             </div>
           </div>
           <div class="pipe-legend">
-            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> gpt-oss-20b via OpenRouter</span>
+            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> the model you pick, via OpenRouter</span>
             <span><span class="pipe-step pipe-rerank" style="font-size:10px;padding:2px 6px">cross-encoder</span> BGE-reranker-base</span>
             <span><span class="pipe-step pipe-k" style="font-size:10px;padding:2px 6px">top-k</span> chunk count</span>
           </div>
@@ -145,7 +147,7 @@
 
       <!-- Suggested queries -->
       <div class="chips-head">
-        <span class="field-label">Try one</span>
+        <span class="field-label">Or try one of these</span>
         <button class="chip-shuffle" id="chip-shuffle" onclick="shuffleSuggestions()" title="Show a different set">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M16 3h5v5"/><path d="M21 3l-8 8"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M3 4l6 6"/>
@@ -200,16 +202,16 @@
       <div class="monitoring-header">
         <div>
           <h2 class="monitoring-title">Performance over time</h2>
-          <p class="monitoring-sub">A background job runs every 6 hours. It sends 3 fixed probe queries through all 4 configs on every model, then scores and logs each result so trends stay comparable across models.</p>
+          <p class="monitoring-sub">A small job runs every 8 hours in the background. It puts two fixed questions through all four setups on two models, grades the answers, and saves the numbers here so you can watch the trend and compare models over time.</p>
         </div>
         <div class="monitoring-meta">
           <div class="meta-pair">
             <span class="meta-k">Last run</span>
-            <span class="meta-v" id="last-run">—</span>
+            <span class="meta-v" id="last-run">not yet</span>
           </div>
           <div class="meta-pair">
             <span class="meta-k">Next run</span>
-            <span class="meta-v" id="next-run">—</span>
+            <span class="meta-v" id="next-run">not scheduled</span>
           </div>
           <button class="text-btn" onclick="loadMonitoring()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -258,7 +260,7 @@
       </div>
 
       <p class="no-data" id="no-data-msg" style="display:none">
-        No monitoring data yet. The first evaluation run completes within 6 hours.
+        Nothing logged yet. The first background run finishes a couple of minutes after startup, then every 8 hours. Check back shortly.
       </p>
 
     </div>
@@ -266,7 +268,8 @@
 
   <!-- ── Footer ────────────────────────────────────────────────────── -->
   <footer class="footer">
-    BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; OpenRouter gpt-oss-20b &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
+    Retrieval and scoring run locally. Answers are generated through OpenRouter.
+    <a href="https://github.com/Sridharmalladi/RAGLens" target="_blank" rel="noopener noreferrer">Source on GitHub</a>
   </footer>
 
   <script src="/app.js"></script>

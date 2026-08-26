@@ -18,7 +18,6 @@ let suggestionPool = [];       // full question pool from the backend
 
 let _answers = {};             // `${mi}-${cid}` -> full answer text
 let _scoreMap = {};            // `${mi}-${cid}` -> scores object
-let _groupScored = {};         // mi -> count of scored configs
 
 let _monitorData = null;
 let _charts = {};
@@ -123,7 +122,7 @@ function _shuffled(arr) {
 function shuffleSuggestions() {
   const host = document.getElementById('suggestion-chips');
   if (!host) return;
-  const picks = _shuffled(suggestionPool).slice(0, 4);
+  const picks = _shuffled(suggestionPool).slice(0, 5);
   host.innerHTML = '';
   for (const q of picks) {
     const btn = document.createElement('button');
@@ -307,7 +306,6 @@ function updateScores(event) {
   if (!el) return;
 
   _scoreMap[k] = scores;
-  _groupScored[mi] = (_groupScored[mi] || 0) + 1;
 
   const METRICS = [
     ['faithfulness',      'Faithful'],
@@ -332,44 +330,84 @@ function updateScores(event) {
     ? rows.join('')
     : `<span class="score-note">No retrieval, so faithfulness does not apply</span>`;
 
-  if (_groupScored[mi] === NUM_CONFIGS) _highlightBest(mi);
+  _highlightBest(mi);  // idempotent; only paints once the whole group is scored
 }
 
-// ── Lightweight markdown renderer (bold, italic, inline-code only) ────
-function _renderMarkdown(text) {
-  const esc = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return esc
+// ── Lightweight markdown renderer ─────────────────────────────────────
+// Handles bold / italic / inline-code, plus graceful fallbacks for lists,
+// headings, and the stray markdown table a model sometimes returns.
+function _esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _inline(s) {
+  return s
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g,     '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g,         '<em>$1</em>')
-    .replace(/`([^`]+)`/g,         '<code>$1</code>')
-    .replace(/\n\n+/g,             '</p><p>')
-    .replace(/^/,                  '<p>')
-    .replace(/$/,                  '</p>');
+    .replace(/(^|[^*])\*(?!\s)([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g,         '<code>$1</code>');
+}
+function _renderMarkdown(text) {
+  const lines = String(text).replace(/\r/g, '').split('\n');
+  const out = [];
+  let para = [];
+  const flush = () => { if (para.length) { out.push('<p>' + para.join(' ') + '</p>'); para = []; } };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+
+    // table divider row: | --- | :--: |
+    if (/^\|?[\s:|-]+\|[\s:|-]*$/.test(line) && line.includes('-')) continue;
+    // table row: collapse cells into a readable line
+    if (/^\|.*\|/.test(line)) {
+      flush();
+      const cells = line.replace(/^\||\|$/g, '').split('|')
+        .map(c => _inline(_esc(c.trim()))).filter(Boolean);
+      if (cells.length) out.push('<p class="md-row">' + cells.join('<span class="md-mid">·</span>') + '</p>');
+      continue;
+    }
+    // heading -> bold line
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) { flush(); out.push('<p><strong>' + _inline(_esc(h[1])) + '</strong></p>'); continue; }
+    // list item -> bullet line
+    const li = line.match(/^([-*+]|\d+[.)])\s+(.*)$/);
+    if (li) { flush(); out.push('<p class="md-li">' + _inline(_esc(li[2])) + '</p>'); continue; }
+
+    para.push(_inline(_esc(line)));
+  }
+  flush();
+  return out.join('') || '<p></p>';
 }
 
-// ── Highlight the best RAG config within one model group ──────────────
+// ── Highlight the strongest config in one model group ────────────────
+// Every config is eligible. Each is scored on the average of the metrics it
+// has (config 1 only has relevancy, which is fair: on an off-corpus question
+// the no-retrieval answer really can be the best one). The badge only shows
+// once every config in the group has a score and the leader clears a floor,
+// so a group of weak answers gets no winner.
 function _highlightBest(mi) {
-  let bestId = -1, bestAvg = -1;
-  // Only configs 2-4 (they carry faithfulness); config 1 would win unfairly
-  // on a single-metric average.
-  for (let cid = 2; cid <= NUM_CONFIGS; cid++) {
-    const s = _scoreMap[`${mi}-${cid}`];
-    if (!s || s.faithfulness == null) continue;
+  const groupCards = CONFIGS.map(c => document.getElementById(`card-${mi}-${c.id}`)).filter(Boolean);
+  groupCards.forEach(card => {
+    card.classList.remove('best');
+    card.querySelector('.best-badge')?.remove();
+  });
+
+  let scored = 0, bestId = -1, bestAvg = -1;
+  for (const c of CONFIGS) {
+    const s = _scoreMap[`${mi}-${c.id}`];
+    if (!s) continue;
     const vals = [s.faithfulness, s.answer_relevancy, s.context_precision].filter(v => v != null);
     if (!vals.length) continue;
+    scored++;
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    if (avg > bestAvg) { bestAvg = avg; bestId = cid; }
+    if (avg > bestAvg) { bestAvg = avg; bestId = c.id; }
   }
-  if (bestId < 1) return;
+
+  if (scored < CONFIGS.length || bestId < 1 || bestAvg < 0.55) return;
 
   const card = document.getElementById(`card-${mi}-${bestId}`);
-  if (!card || card.querySelector('.best-badge')) return;
+  if (!card) return;
   card.classList.add('best');
-
   const badge = document.createElement('span');
   badge.className = 'best-badge';
   badge.innerHTML = `
@@ -387,7 +425,7 @@ async function runComparison() {
   if (!selectedModels.length) return;
 
   runModels = selectedModels.slice();
-  _answers = {}; _scoreMap = {}; _groupScored = {};
+  _answers = {}; _scoreMap = {};
 
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -468,8 +506,8 @@ async function loadMonitoring() {
     const data = await res.json();
     _monitorData = data;
 
-    document.getElementById('last-run').textContent = data.last_run ? _fmtAgo(data.last_run) : '—';
-    document.getElementById('next-run').textContent = data.next_run || '—';
+    document.getElementById('last-run').textContent = data.last_run ? _fmtAgo(data.last_run) : 'not yet';
+    document.getElementById('next-run').textContent = data.next_run || 'not scheduled';
 
     const driftEl = document.getElementById('drift-banner');
     if (data.alerts && data.alerts.length) {
@@ -606,7 +644,7 @@ function _renderAllCharts(data) {
             callbacks: {
               label: ctx => {
                 const v = ctx.parsed.y;
-                return ` ${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '—'}`;
+                return ` ${ctx.dataset.label}: ${v != null ? v.toFixed(3) : 'no data'}`;
               },
             },
           },
@@ -642,7 +680,7 @@ function _renderLatestMatrix(data) {
 
   const cell = (mid, cid) => {
     const p = last[`${mid}-${cid}`];
-    if (!p) return '<td class="lm-cell lm-empty">—</td>';
+    if (!p) return '<td class="lm-cell lm-empty">no run</td>';
     const bits = [];
     if (p.faithfulness != null) bits.push(`<span class="lm-k">F</span>${p.faithfulness.toFixed(2)}`);
     if (p.answer_relevancy != null) bits.push(`<span class="lm-k">R</span>${p.answer_relevancy.toFixed(2)}`);

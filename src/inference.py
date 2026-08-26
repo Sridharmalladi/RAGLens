@@ -8,7 +8,9 @@ NEVER writes to the monitoring database.
 import logging
 from typing import Generator
 
-from config import CONFIG_NAMES, CONFIG_DESCRIPTIONS, TOP_K, RERANK_TOP_N
+from config import (
+    CONFIG_NAMES, CONFIG_DESCRIPTIONS, TOP_K, RERANK_TOP_N, CONTEXT_CHARS_PER_CHUNK,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,9 @@ def _run_config(config_id: int, query: str, model: str | None = None, max_tokens
 def _chunks_to_context(chunks: list[dict]) -> str:
     if not chunks:
         return ""
-    return "\n\n".join(f"[{i+1}] {c['text']}" for i, c in enumerate(chunks))
+    return "\n\n".join(
+        f"[{i+1}] {c['text'][:CONTEXT_CHARS_PER_CHUNK]}" for i, c in enumerate(chunks)
+    )
 
 
 def _error_result(config_id: int, message: str) -> dict:

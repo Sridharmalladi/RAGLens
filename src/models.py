@@ -9,8 +9,11 @@ from config import OPENROUTER_GENERATION_MODEL, MAX_NEW_TOKENS
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are a research assistant focused on RAG systems and LLM evaluation. "
-    "Answer concisely and accurately. When context is provided, base your answer on it."
+    "You are a knowledgeable assistant. Answer the question directly and accurately "
+    "in a few short paragraphs of plain prose. Do not use markdown tables, headings, "
+    "or bullet lists. When context passages are provided, ground your answer in them "
+    "and do not invent details they do not contain. If the context does not cover the "
+    "question, say so briefly and answer from general knowledge."
 )
 
 

@@ -44,7 +44,11 @@ def run_evaluation_cycle() -> None:
                     continue
 
                 try:
-                    scores = score(query, result.get("answer", ""), result.get("context_chunks", []))
+                    # full=False: skip context_precision, which no chart uses
+                    scores = score(
+                        query, result.get("answer", ""),
+                        result.get("context_chunks", []), full=False,
+                    )
                 except Exception as e:
                     logger.error("Scoring failed for config %d: %s", config_id, e)
                     scores = {"faithfulness": None, "answer_relevancy": None, "context_precision": None}
