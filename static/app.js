@@ -1,17 +1,28 @@
 'use strict';
 
-const NUM_CONFIGS = 4;
 const ANSWER_CLAMP_CHARS = 340;
 
-let selectedModel = 'openai/gpt-oss-20b';
+// Config metadata the UI needs to build cards. Mirrors config.py CONFIG_*.
+const CONFIGS = [
+  { id: 1, name: 'No RAG',          sub: 'training data only', color: '#6B7280' },
+  { id: 2, name: 'Dense RAG',       sub: 'BGE-small · FAISS',  color: '#60A5FA' },
+  { id: 3, name: 'Hybrid RAG',      sub: 'Dense + BM25',       color: '#FBBF24' },
+  { id: 4, name: 'Hybrid + Rerank', sub: '+ cross-encoder',    color: '#34D399' },
+];
+const NUM_CONFIGS = CONFIGS.length;
 
-let _fullAnswers = {};
-let _scoreMap   = {};
-let _scoresIn   = 0;
-let _answersIn  = 0;
+let CFG = null;                 // /api/config payload
+let selectedModels = [];       // model ids the user has picked
+let runModels = [];            // snapshot of models for the in-flight comparison
+let suggestionPool = [];       // full question pool from the backend
+
+let _answers = {};             // `${mi}-${cid}` -> full answer text
+let _scoreMap = {};            // `${mi}-${cid}` -> scores object
+let _groupScored = {};         // mi -> count of scored configs
 
 let _monitorData = null;
-let _charts      = {};
+let _charts = {};
+let _hiddenModels = new Set();  // monitoring model ids toggled off
 
 // ── Theme ─────────────────────────────────────────────────────────────
 function _resolveTheme() {
@@ -22,8 +33,7 @@ function _resolveTheme() {
 
 function _applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('raglens-theme', theme);
-  // Re-render charts with updated palette
+  try { localStorage.setItem('raglens-theme', theme); } catch (_) {}
   if (_monitorData) _renderAllCharts(_monitorData);
 }
 
@@ -32,40 +42,177 @@ function toggleTheme() {
   _applyTheme(current === 'dark' ? 'light' : 'dark');
 }
 
-// ── Model selector ────────────────────────────────────────────────────
-function selectModel(btn) {
-  document.querySelectorAll('.model-tab').forEach(t => t.classList.remove('active'));
-  btn.classList.add('active');
-  selectedModel = btn.dataset.model;
+// ── App config ────────────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    CFG = await res.json();
+  } catch (_) {
+    CFG = {
+      models: [{ id: 'openai/gpt-oss-20b', label: 'gpt-oss-20b', tag: 'fast' }],
+      default_model: 'openai/gpt-oss-20b',
+      max_models: 1,
+      suggestions: [],
+    };
+  }
+  selectedModels = [CFG.default_model];
+  suggestionPool = CFG.suggestions || [];
+  renderModelPicker();
+  shuffleSuggestions();
 }
 
-// ── Suggested query chip ──────────────────────────────────────────────
+// ── Model picker (multi-select) ───────────────────────────────────────
+function renderModelPicker() {
+  const host = document.getElementById('model-picker');
+  host.innerHTML = '';
+  for (const m of CFG.models) {
+    const on = selectedModels.includes(m.id);
+    const btn = document.createElement('button');
+    btn.className = 'model-tab' + (on ? ' active' : '');
+    btn.dataset.model = m.id;
+    btn.innerHTML =
+      `<span class="tab-check" aria-hidden="true"></span>${m.label}` +
+      (m.tag ? ` <span class="model-tag">${m.tag}</span>` : '');
+    btn.onclick = () => toggleModel(m.id);
+    host.appendChild(btn);
+  }
+  _updatePickerHint();
+}
+
+function toggleModel(id) {
+  const on = selectedModels.includes(id);
+  if (on) {
+    if (selectedModels.length === 1) return;           // keep at least one
+    selectedModels = selectedModels.filter(x => x !== id);
+  } else {
+    if (selectedModels.length >= (CFG.max_models || 1)) { _flashPickerHint(); return; }
+    // preserve CFG.models order
+    const order = CFG.models.map(m => m.id);
+    selectedModels = order.filter(x => x === id || selectedModels.includes(x));
+  }
+  renderModelPicker();
+}
+
+function _updatePickerHint() {
+  const el = document.getElementById('picker-hint');
+  if (!el) return;
+  const max = CFG.max_models || 1;
+  el.textContent = CFG.models.length > 1
+    ? `${selectedModels.length} of ${max} selected · runs 4 configs each`
+    : '';
+}
+
+function _flashPickerHint() {
+  const el = document.getElementById('picker-hint');
+  if (!el) return;
+  el.textContent = `Up to ${CFG.max_models} models at a time`;
+  el.classList.add('flash');
+  setTimeout(() => { el.classList.remove('flash'); _updatePickerHint(); }, 1400);
+}
+
+// ── Suggested questions (shuffled) ────────────────────────────────────
+function _shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function shuffleSuggestions() {
+  const host = document.getElementById('suggestion-chips');
+  if (!host) return;
+  const picks = _shuffled(suggestionPool).slice(0, 4);
+  host.innerHTML = '';
+  for (const q of picks) {
+    const btn = document.createElement('button');
+    btn.className = 'chip';
+    btn.textContent = q;
+    btn.onclick = () => setQuery(btn);
+    host.appendChild(btn);
+  }
+}
+
 function setQuery(btn) {
-  document.getElementById('query-input').value = btn.textContent.trim();
-  document.getElementById('query-input').focus();
+  const input = document.getElementById('query-input');
+  input.value = btn.textContent.trim();
+  input.focus();
 }
 
 // ── View toggle (grid / stack) ────────────────────────────────────────
 function setView(mode) {
-  const grid     = document.getElementById('results-grid');
-  const btnGrid  = document.getElementById('btn-grid');
-  const btnStack = document.getElementById('btn-stack');
-  if (mode === 'stack') {
-    grid.classList.add('stack');
-    btnStack.classList.add('active');
-    btnGrid.classList.remove('active');
-  } else {
-    grid.classList.remove('stack');
-    btnGrid.classList.add('active');
-    btnStack.classList.remove('active');
-  }
+  const groups = document.getElementById('results-groups');
+  document.getElementById('btn-grid').classList.toggle('active', mode !== 'stack');
+  document.getElementById('btn-stack').classList.toggle('active', mode === 'stack');
+  groups.classList.toggle('groups-stack', mode === 'stack');
+}
+
+// ── Card + group construction ─────────────────────────────────────────
+const COPY_SVG =
+  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+function _cardHTML(mi, c) {
+  const k = `${mi}-${c.id}`;
+  return `
+    <div class="config-card" id="card-${k}" style="--cc:${c.color}">
+      <div class="card-header">
+        <span class="config-dot" style="background:${c.color}"></span>
+        <span class="config-name">${c.name}</span>
+        <span class="config-sub">${c.sub}</span>
+        <div class="card-header-right">
+          <span class="latency-pill" id="latency-${k}"></span>
+          <button class="copy-btn" id="copy-${k}" title="Copy answer">${COPY_SVG}</button>
+          <span class="card-status" id="status-${k}"></span>
+        </div>
+      </div>
+      <div class="card-answer" id="answer-${k}">
+        <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
+      </div>
+      <button class="expand-btn" id="expand-${k}" style="display:none">Show more</button>
+      <div class="card-scores" id="scores-${k}"></div>
+      <div class="card-sources" id="sources-${k}"></div>
+    </div>`;
+}
+
+function _modelMeta(id) {
+  return (CFG.models || []).find(m => m.id === id) || { id, label: id, tag: '' };
+}
+
+function buildGroups(models) {
+  const host = document.getElementById('results-groups');
+  host.innerHTML = '';
+  models.forEach((mid, mi) => {
+    const meta = _modelMeta(mid);
+    const group = document.createElement('div');
+    group.className = 'model-group';
+    group.innerHTML =
+      `<div class="model-group-head">
+         <span class="mg-name">${meta.label}</span>
+         ${meta.tag ? `<span class="mg-tag">${meta.tag}</span>` : ''}
+         ${models.length > 1 ? `<span class="mg-count">4 configs</span>` : ''}
+       </div>
+       <div class="results-grid">${CONFIGS.map(c => _cardHTML(mi, c)).join('')}</div>`;
+    host.appendChild(group);
+  });
+
+  // wire per-card buttons
+  models.forEach((_, mi) => {
+    CONFIGS.forEach(c => {
+      const k = `${mi}-${c.id}`;
+      document.getElementById(`copy-${k}`).onclick = () => copyAnswer(k);
+      document.getElementById(`expand-${k}`).onclick = () => toggleExpand(k);
+    });
+  });
 }
 
 // ── Answer expand / collapse ──────────────────────────────────────────
-function _maybeClamp(id) {
-  const el  = document.getElementById(`answer-${id}`);
-  const btn = document.getElementById(`expand-${id}`);
-  const txt = _fullAnswers[id] || '';
+function _maybeClamp(k) {
+  const el = document.getElementById(`answer-${k}`);
+  const btn = document.getElementById(`expand-${k}`);
+  const txt = _answers[k] || '';
   if (txt.length > ANSWER_CLAMP_CHARS) {
     el.classList.add('clamped');
     btn.textContent = 'Show more';
@@ -76,9 +223,9 @@ function _maybeClamp(id) {
   }
 }
 
-function toggleExpand(id) {
-  const el  = document.getElementById(`answer-${id}`);
-  const btn = document.getElementById(`expand-${id}`);
+function toggleExpand(k) {
+  const el = document.getElementById(`answer-${k}`);
+  const btn = document.getElementById(`expand-${k}`);
   if (el.classList.contains('clamped')) {
     el.classList.remove('clamped');
     btn.textContent = 'Show less';
@@ -89,109 +236,78 @@ function toggleExpand(id) {
 }
 
 // ── Copy answer ───────────────────────────────────────────────────────
-function copyAnswer(id) {
-  const text = _fullAnswers[id];
+function copyAnswer(k) {
+  const text = _answers[k];
   if (!text) return;
   navigator.clipboard.writeText(text).then(() => {
-    const btn = document.getElementById(`copy-${id}`);
+    const btn = document.getElementById(`copy-${k}`);
     btn.classList.add('copied');
-    btn.title = 'Copied!';
+    btn.title = 'Copied';
     setTimeout(() => { btn.classList.remove('copied'); btn.title = 'Copy answer'; }, 1800);
   });
 }
 
-// ── Reset cards ───────────────────────────────────────────────────────
-function resetCards() {
-  _fullAnswers = {}; _scoreMap = {}; _scoresIn = 0; _answersIn = 0;
-  document.getElementById('results-section').style.display = 'block';
-
-  for (let i = 1; i <= NUM_CONFIGS; i++) {
-    const card = document.getElementById(`card-${i}`);
-    card.classList.remove('visible', 'complete', 'best');
-    card.style.boxShadow = '';
-    const badge = card.querySelector('.best-badge');
-    if (badge) badge.remove();
-
-    document.getElementById(`answer-${i}`).innerHTML =
-      `<div class="skeleton-line"></div>
-       <div class="skeleton-line short"></div>
-       <div class="skeleton-line"></div>`;
-    document.getElementById(`answer-${i}`).classList.remove('clamped');
-
-    const status = document.getElementById(`status-${i}`);
-    status.textContent = ''; status.className = 'card-status';
-
-    const lp = document.getElementById(`latency-${i}`);
-    lp.textContent = ''; lp.className = 'latency-pill';
-
-    document.getElementById(`expand-${i}`).style.display = 'none';
-    document.getElementById(`scores-${i}`).innerHTML = '';
-    document.getElementById(`sources-${i}`).innerHTML = '';
-    document.getElementById(`copy-${i}`).classList.remove('copied');
-  }
-}
-
-function markScoringPending() {
-  for (let i = 1; i <= NUM_CONFIGS; i++) {
-    const el = document.getElementById(`scores-${i}`);
-    if (el && !el.innerHTML.trim()) {
-      el.innerHTML = `<span class="score-pending">Scoring…</span>`;
-    }
-  }
-}
-
 // ── Render one result card ────────────────────────────────────────────
 function renderResult(result) {
-  const id   = result.config_id;
-  const card = document.getElementById(`card-${id}`);
+  const mi = runModels.indexOf(result.model);
+  if (mi < 0) return;
+  const k = `${mi}-${result.config_id}`;
+  const card = document.getElementById(`card-${k}`);
+  if (!card) return;
   card.classList.add('visible');
 
-  const status = document.getElementById(`status-${id}`);
+  const status = document.getElementById(`status-${k}`);
 
   if (result.error) {
-    document.getElementById(`answer-${id}`).innerHTML =
+    document.getElementById(`answer-${k}`).innerHTML =
       `<div class="card-error">⚠ ${result.error}</div>`;
-    status.textContent = '✗'; status.className = 'card-status error';
+    status.textContent = '✗';
+    status.className = 'card-status error';
     card.classList.add('complete');
     return;
   }
 
   if (result.latency != null) {
-    const lp = document.getElementById(`latency-${id}`);
+    const lp = document.getElementById(`latency-${k}`);
     lp.textContent = result.latency.toFixed(2) + 's';
     lp.className = 'latency-pill visible';
   }
 
-  const answerEl = document.getElementById(`answer-${id}`);
+  const answerEl = document.getElementById(`answer-${k}`);
   const fullText = result.answer || '(no answer)';
-  _fullAnswers[id] = fullText;
+  _answers[k] = fullText;
   answerEl.innerHTML = _renderMarkdown(fullText);
-  _maybeClamp(id);
+  _maybeClamp(k);
 
-  status.textContent = '✓'; status.className = 'card-status done';
+  status.textContent = '✓';
+  status.className = 'card-status done';
   card.classList.add('complete');
 
-  const sources   = result.sources || [];
-  const sourcesEl = document.getElementById(`sources-${id}`);
+  const sources = result.sources || [];
+  const sourcesEl = document.getElementById(`sources-${k}`);
   if (sources.length) {
     sourcesEl.innerHTML = sources.slice(0, 5).map(s =>
       `<span class="source-chip" title="${s}">${s}</span>`
     ).join('');
   }
 
-  _answersIn++;
-  if (_answersIn === NUM_CONFIGS) markScoringPending();
+  const scoresEl = document.getElementById(`scores-${k}`);
+  if (!scoresEl.innerHTML.trim()) {
+    scoresEl.innerHTML = `<span class="score-pending">Scoring…</span>`;
+  }
 }
 
 // ── Render score event ────────────────────────────────────────────────
 function updateScores(event) {
-  const id     = event.config_id;
+  const mi = runModels.indexOf(event.model);
+  if (mi < 0) return;
+  const k = `${mi}-${event.config_id}`;
   const scores = event.scores || {};
-  const el     = document.getElementById(`scores-${id}`);
+  const el = document.getElementById(`scores-${k}`);
   if (!el) return;
 
-  _scoreMap[id] = scores;
-  _scoresIn++;
+  _scoreMap[k] = scores;
+  _groupScored[mi] = (_groupScored[mi] || 0) + 1;
 
   const METRICS = [
     ['faithfulness',      'Faithful'],
@@ -202,7 +318,7 @@ function updateScores(event) {
   const rows = METRICS
     .filter(([f]) => scores[f] != null)
     .map(([f, label]) => {
-      const v   = scores[f];
+      const v = scores[f];
       const pct = Math.round(v * 100);
       const col = v >= 0.75 ? 'var(--green)' : v >= 0.5 ? 'var(--amber)' : 'var(--red)';
       return `<div class="metric-row">
@@ -214,14 +330,13 @@ function updateScores(event) {
 
   el.innerHTML = rows.length
     ? rows.join('')
-    : `<span class="score-note">No retrieval — faithfulness not applicable</span>`;
+    : `<span class="score-note">No retrieval, so faithfulness does not apply</span>`;
 
-  if (_scoresIn === NUM_CONFIGS) _highlightBest();
+  if (_groupScored[mi] === NUM_CONFIGS) _highlightBest(mi);
 }
 
 // ── Lightweight markdown renderer (bold, italic, inline-code only) ────
 function _renderMarkdown(text) {
-  // Escape HTML first to prevent XSS, then selectively re-introduce tags
   const esc = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -236,24 +351,23 @@ function _renderMarkdown(text) {
     .replace(/$/,                  '</p>');
 }
 
-// ── Highlight best config ─────────────────────────────────────────────
-function _highlightBest() {
+// ── Highlight the best RAG config within one model group ──────────────
+function _highlightBest(mi) {
   let bestId = -1, bestAvg = -1;
-
-  // Only consider RAG configs (2-4) that have faithfulness scores.
-  // Config 1 (No RAG) only has relevancy, so its 1-metric average would
-  // always beat multi-metric configs unfairly.
-  for (let id = 2; id <= NUM_CONFIGS; id++) {
-    const s = _scoreMap[id];
+  // Only configs 2-4 (they carry faithfulness); config 1 would win unfairly
+  // on a single-metric average.
+  for (let cid = 2; cid <= NUM_CONFIGS; cid++) {
+    const s = _scoreMap[`${mi}-${cid}`];
     if (!s || s.faithfulness == null) continue;
     const vals = [s.faithfulness, s.answer_relevancy, s.context_precision].filter(v => v != null);
     if (!vals.length) continue;
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    if (avg > bestAvg) { bestAvg = avg; bestId = id; }
+    if (avg > bestAvg) { bestAvg = avg; bestId = cid; }
   }
-
   if (bestId < 1) return;
-  const card = document.getElementById(`card-${bestId}`);
+
+  const card = document.getElementById(`card-${mi}-${bestId}`);
+  if (!card || card.querySelector('.best-badge')) return;
   card.classList.add('best');
 
   const badge = document.createElement('span');
@@ -270,6 +384,10 @@ function _highlightBest() {
 async function runComparison() {
   const query = document.getElementById('query-input').value.trim();
   if (!query) return;
+  if (!selectedModels.length) return;
+
+  runModels = selectedModels.slice();
+  _answers = {}; _scoreMap = {}; _groupScored = {};
 
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -281,19 +399,19 @@ async function runComparison() {
     </svg>
     Running…`;
 
-  resetCards();
+  document.getElementById('results-section').style.display = 'block';
+  buildGroups(runModels);
   document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
     const resp = await fetch('/api/compare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, model: selectedModel }),
+      body: JSON.stringify({ query, models: runModels }),
     });
-
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const reader  = resp.body.getReader();
+    const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -305,32 +423,48 @@ async function runComparison() {
       buffer = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        try {
-          const ev = JSON.parse(line.slice(6));
-          ev.type === 'score' ? updateScores(ev) : renderResult(ev);
-        } catch (_) {}
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
+
+        if (ev.type === 'start') {
+          if (Array.isArray(ev.models) && ev.models.length) {
+            runModels = ev.models;
+            buildGroups(runModels);
+          }
+        } else if (ev.error) {
+          throw new Error(ev.error);
+        } else if (ev.type === 'score') {
+          updateScores(ev);
+        } else {
+          renderResult(ev);
+        }
       }
     }
   } catch (err) {
     console.error('Compare failed:', err);
-    for (let i = 1; i <= NUM_CONFIGS; i++) {
-      document.getElementById(`answer-${i}`).innerHTML =
-        `<div class="card-error">⚠ Request failed — ${err.message}</div>`;
-      document.getElementById(`status-${i}`).textContent = '✗';
-      document.getElementById(`card-${i}`).classList.add('visible', 'complete');
-    }
+    runModels.forEach((_, mi) => {
+      CONFIGS.forEach(c => {
+        const k = `${mi}-${c.id}`;
+        const a = document.getElementById(`answer-${k}`);
+        if (a) a.innerHTML = `<div class="card-error">⚠ Request failed. ${err.message}</div>`;
+        const s = document.getElementById(`status-${k}`);
+        if (s) { s.textContent = '✗'; s.className = 'card-status error'; }
+        document.getElementById(`card-${k}`)?.classList.add('visible', 'complete');
+      });
+    });
   } finally {
     btn.disabled = false;
     btn.innerHTML = `
       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l10 6-10 6V2z"/></svg>
-      Run 4 configs`;
+      Run comparison`;
+    shuffleSuggestions();
   }
 }
 
-// ── Monitoring charts ─────────────────────────────────────────────────
+// ── Monitoring ────────────────────────────────────────────────────────
 async function loadMonitoring() {
   try {
-    const res  = await fetch('/api/monitoring');
+    const res = await fetch('/api/monitoring');
     const data = await res.json();
     _monitorData = data;
 
@@ -340,85 +474,114 @@ async function loadMonitoring() {
     const driftEl = document.getElementById('drift-banner');
     if (data.alerts && data.alerts.length) {
       driftEl.style.display = 'block';
-      driftEl.innerHTML = data.alerts.map(a =>
-        `⚠ ${a.config_name}: faithfulness dropped ${(a.drop * 100).toFixed(1)}% in the last 24 h`
-      ).join('<br>');
+      driftEl.innerHTML = data.alerts.map(a => {
+        const label = (data.models.find(m => m.id === a.model) || {}).label || a.model;
+        return `⚠ ${label} · ${a.config_name}: faithfulness down ${(a.drop * 100).toFixed(1)}% versus the prior window`;
+      }).join('<br>');
     } else {
       driftEl.style.display = 'none';
     }
 
     const noData = document.getElementById('no-data-msg');
-    if (!data.has_data || !data.series || !data.series.length) {
+    const hasData = data.has_data && data.series && data.series.length;
+    document.getElementById('latest-wrap').style.display = hasData ? 'block' : 'none';
+    if (!hasData) {
       noData.style.display = 'block';
+      document.getElementById('mon-models').innerHTML = '';
+      for (const id in _charts) { _charts[id].destroy(); delete _charts[id]; }
       return;
     }
     noData.style.display = 'none';
+    renderMonModelToggles(data);
     _renderAllCharts(data);
+    _renderLatestMatrix(data);
   } catch (err) {
     console.error('Monitoring load failed:', err);
   }
 }
 
+function renderMonModelToggles(data) {
+  const host = document.getElementById('mon-models');
+  if (!data.models || data.models.length < 2) { host.innerHTML = ''; return; }
+  host.innerHTML = '<span class="field-label">Show</span>';
+  for (const m of data.models) {
+    const on = !_hiddenModels.has(m.id);
+    const btn = document.createElement('button');
+    btn.className = 'model-tab' + (on ? ' active' : '');
+    btn.innerHTML = `<span class="tab-check" aria-hidden="true"></span>${m.label}`;
+    btn.onclick = () => {
+      if (_hiddenModels.has(m.id)) _hiddenModels.delete(m.id);
+      else if (data.models.length - _hiddenModels.size > 1) _hiddenModels.add(m.id);
+      renderMonModelToggles(data);
+      _renderAllCharts(data);
+      _renderLatestMatrix(data);
+    };
+    host.appendChild(btn);
+  }
+}
+
+function _modelOrder(data) {
+  return (data.models || []).map(m => m.id);
+}
+function _dashFor(idx) {
+  return [[], [6, 4], [2, 3], [4, 2, 1, 2]][idx] || [3, 3];
+}
+
 function _chartColors() {
   const light = document.documentElement.getAttribute('data-theme') === 'light';
   return {
-    tick:    light ? '#94a3b8' : '#38404f',
-    grid:    light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)',
-    tooltip: light ? '#ffffff' : '#07090f',
-    ttBorder:light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
-    ttTitle: light ? '#0f172a' : '#e2e8f0',
-    ttBody:  light ? '#475569' : '#7d8a9a',
-    legend:  light ? '#94a3b8' : '#38404f',
+    tick:     light ? '#94a3b8' : '#38404f',
+    grid:     light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)',
+    tooltip:  light ? '#ffffff' : '#07090f',
+    ttBorder: light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
+    ttTitle:  light ? '#0f172a' : '#e2e8f0',
+    ttBody:   light ? '#475569' : '#7d8a9a',
+    legend:   light ? '#94a3b8' : '#38404f',
   };
 }
 
-function _renderAllCharts(data) {
-  const allTs = [...new Set(
-    data.series.flatMap(s => s.points.map(p => p.ts.slice(5, 16)))
-  )].sort();
+function _visibleSeries(data) {
+  return data.series.filter(s => !_hiddenModels.has(s.model));
+}
 
+function _renderAllCharts(data) {
+  const order = _modelOrder(data);
+  const vis = _visibleSeries(data);
+  const allTs = [...new Set(vis.flatMap(s => s.points.map(p => p.ts.slice(5, 16))))].sort();
   const C = _chartColors();
+  const multiModel = (data.models || []).length > 1;
 
   const CHART_DEFS = [
-    {
-      id:     'chart-faithfulness',
-      field:  'faithfulness',
-      yLabel: 'Score (0–1)',
-      yMin: 0, yMax: 1,
-      series: data.series.filter(s => s.config_id !== 1),
-    },
-    {
-      id:     'chart-relevancy',
-      field:  'answer_relevancy',
-      yLabel: 'Score (0–1)',
-      yMin: 0, yMax: 1,
-      series: data.series,
-    },
-    {
-      id:     'chart-latency',
-      field:  'latency',
-      yLabel: 'Seconds',
-      yMin: null, yMax: null,
-      series: data.series,
-    },
+    { id: 'chart-faithfulness', field: 'faithfulness',     yMin: 0, yMax: 1,
+      series: vis.filter(s => s.config_id !== 1), yLabel: 'Score (0 to 1)' },
+    { id: 'chart-relevancy',    field: 'answer_relevancy', yMin: 0, yMax: 1,
+      series: vis, yLabel: 'Score (0 to 1)' },
+    { id: 'chart-latency',      field: 'latency',          yMin: null, yMax: null,
+      series: vis, yLabel: 'Seconds' },
   ];
 
   for (const def of CHART_DEFS) {
     if (_charts[def.id]) { _charts[def.id].destroy(); delete _charts[def.id]; }
 
-    const datasets = def.series.map(s => ({
-      label:            s.config_name,
-      data:             s.points.map(p => ({ x: p.ts.slice(5, 16), y: p[def.field] })),
-      borderColor:      s.color,
-      backgroundColor:  s.color + '18',
-      borderWidth:      2,
-      tension:          0.4,
-      pointRadius:      3,
-      pointHoverRadius: 5,
-      pointBackgroundColor: s.color,
-      spanGaps:         true,
-      fill:             false,
-    }));
+    const datasets = def.series.map(s => {
+      const mi = order.indexOf(s.model);
+      const dash = multiModel ? _dashFor(mi < 0 ? 0 : mi) : [];
+      return {
+        label:            multiModel ? `${s.model_label} · ${s.config_name}` : s.config_name,
+        data:             s.points.map(p => ({ x: p.ts.slice(5, 16), y: p[def.field] })),
+        borderColor:      s.color,
+        backgroundColor:  s.color + '18',
+        borderWidth:      2,
+        borderDash:       dash,
+        tension:          0.4,
+        pointRadius:      3,
+        pointHoverRadius: 5,
+        pointStyle:       mi === 1 ? 'rectRot' : 'circle',
+        pointBackgroundColor: s.color,
+        spanGaps:         true,
+        fill:             false,
+      };
+    });
 
     _charts[def.id] = new Chart(document.getElementById(def.id), {
       type: 'line',
@@ -433,18 +596,13 @@ function _renderAllCharts(data) {
             labels: {
               color: C.legend,
               font: { size: 11, family: 'Inter' },
-              boxWidth: 10, boxHeight: 10, padding: 16,
+              boxWidth: 10, boxHeight: 10, padding: 14,
               usePointStyle: true, pointStyle: 'circle',
             },
           },
           tooltip: {
-            backgroundColor: C.tooltip,
-            borderColor:     C.ttBorder,
-            borderWidth:     1,
-            titleColor:      C.ttTitle,
-            bodyColor:       C.ttBody,
-            padding:         12,
-            cornerRadius:    8,
+            backgroundColor: C.tooltip, borderColor: C.ttBorder, borderWidth: 1,
+            titleColor: C.ttTitle, bodyColor: C.ttBody, padding: 12, cornerRadius: 8,
             callbacks: {
               label: ctx => {
                 const v = ctx.parsed.y;
@@ -470,10 +628,45 @@ function _renderAllCharts(data) {
   }
 }
 
+// ── Latest-scores matrix ─────────────────────────────────────────────
+function _renderLatestMatrix(data) {
+  const host = document.getElementById('latest-matrix');
+  const models = (data.models || []).filter(m => !_hiddenModels.has(m.id));
+  if (!models.length) { host.innerHTML = ''; return; }
+
+  const last = {};  // `${model}-${cid}` -> latest point
+  for (const s of data.series) {
+    if (!s.points.length) continue;
+    last[`${s.model}-${s.config_id}`] = s.points[s.points.length - 1];
+  }
+
+  const cell = (mid, cid) => {
+    const p = last[`${mid}-${cid}`];
+    if (!p) return '<td class="lm-cell lm-empty">—</td>';
+    const bits = [];
+    if (p.faithfulness != null) bits.push(`<span class="lm-k">F</span>${p.faithfulness.toFixed(2)}`);
+    if (p.answer_relevancy != null) bits.push(`<span class="lm-k">R</span>${p.answer_relevancy.toFixed(2)}`);
+    if (p.latency != null) bits.push(`<span class="lm-lat">${p.latency.toFixed(2)}s</span>`);
+    return `<td class="lm-cell">${bits.join('<span class="lm-sep">·</span>')}</td>`;
+  };
+
+  const head = ['<th class="lm-corner"></th>']
+    .concat(models.map(m => `<th class="lm-model">${m.label}</th>`)).join('');
+  const body = CONFIGS.map(c =>
+    `<tr><th class="lm-config"><span class="lm-dot" style="background:${c.color}"></span>${c.name}</th>` +
+    models.map(m => cell(m.id, c.id)).join('') + '</tr>'
+  ).join('');
+
+  host.innerHTML =
+    `<table class="lm-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+     <div class="lm-legend"><span class="lm-k">F</span> faithfulness
+       <span class="lm-k">R</span> relevancy · trailing value is latency</div>`;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 function _fmtAgo(iso) {
   try {
-    const ts   = iso.endsWith('Z') ? iso : iso + 'Z';
+    const ts = iso.endsWith('Z') ? iso : iso + 'Z';
     const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
     if (mins < 0) return 'just now';
     return mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
@@ -491,13 +684,12 @@ async function _checkReady() {
 
 async function _initWarmup() {
   const banner = document.getElementById('warmup-banner');
-  const btn    = document.getElementById('run-btn');
-  const ready  = await _checkReady();
-  if (ready) return;
+  const btn = document.getElementById('run-btn');
+  if (await _checkReady()) return;
 
   banner.style.display = 'flex';
   btn.disabled = true;
-  btn.title = 'Waiting for backend…';
+  btn.title = 'Waiting for the backend';
 
   const iv = setInterval(async () => {
     if (await _checkReady()) {
@@ -509,9 +701,19 @@ async function _initWarmup() {
   }, 3000);
 }
 
+// ── Keyboard ──────────────────────────────────────────────────────────
+function _onQueryKey(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    runComparison();
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   _applyTheme(_resolveTheme());
+  document.getElementById('query-input').addEventListener('keydown', _onQueryKey);
+  loadConfig();
   _initWarmup();
   loadMonitoring();
 });

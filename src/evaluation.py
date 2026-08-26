@@ -1,52 +1,41 @@
 """
-LLM-as-judge scoring via Groq API (openai/gpt-oss-20b).
+LLM-as-judge scoring via the OpenRouter API (openai/gpt-oss-20b).
 Three metrics matching RAGAS axes: faithfulness, answer_relevancy, context_precision.
 answer_relevancy runs for all configs; faithfulness + context_precision require context.
 """
 
 import logging
-import os
 import re
+
+from adapters import openrouter
 
 logger = logging.getLogger(__name__)
 
 
 def _check_available() -> bool:
-    return bool(os.environ.get("GROQ_API_KEY"))
+    return openrouter.api_key_present()
 
 
 def _ask(prompt: str) -> float | None:
-    """One Groq call. Returns float in [0,1] or None on failure/rate-limit."""
-    import time
-    from groq import Groq, RateLimitError
+    """One judge call. Returns a float in [0,1], or None on failure or rate limit."""
     from config import JUDGE_MODEL
-    from src.models import _retry_wait
 
-    client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0, timeout=15.0)
-    for attempt in range(2):
-        try:
-            resp = client.chat.completions.create(
-                model=JUDGE_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                max_tokens=10,
-            )
-            text = resp.choices[0].message.content.strip()
-            m = re.search(r"1\.0|0\.\d+|[01]", text)
-            if m:
-                return round(min(max(float(m.group()), 0.0), 1.0), 4)
-            return None
-        except RateLimitError as e:
-            wait = _retry_wait(e) or 15.0
-            if attempt == 0:
-                logger.warning("Scoring rate limited — waiting %.1fs", wait)
-                time.sleep(wait)
-            else:
-                logger.warning("Scoring rate limited after retry, skipping")
-                return None
-        except Exception as e:
-            logger.warning("Groq scoring call failed: %s", e)
-            return None
+    try:
+        text = openrouter.complete(
+            [{"role": "user", "content": prompt}],
+            model=JUDGE_MODEL,
+            temperature=0,
+            max_tokens=128,  # headroom for the model's reasoning before the number
+            timeout=20.0,
+            reasoning_effort="low",
+        )
+    except Exception as exc:
+        logger.warning("OpenRouter scoring call failed: %s", exc)
+        return None
+
+    match = re.search(r"1\.0|0\.\d+|[01]", text)
+    if match:
+        return round(min(max(float(match.group()), 0.0), 1.0), 4)
     return None
 
 
@@ -70,7 +59,7 @@ def score(
 
     relevancy = _ask(
         f"Question: {query}\n\nAnswer: {answer}\n\n"
-        "Rate ANSWER RELEVANCY (0.0–1.0): how well does the answer address "
+        "Rate ANSWER RELEVANCY (0.0 to 1.0): how well does the answer address "
         "the question? 1.0 = perfectly on-topic, 0.0 = completely off-topic. "
         "Reply with a single decimal number only."
     )
@@ -84,7 +73,7 @@ def score(
     faithfulness = _ask(
         f"Context:\n{ctx}\n\n"
         f"Answer: {answer}\n\n"
-        "Rate FAITHFULNESS (0.0–1.0): does the answer use ONLY information "
+        "Rate FAITHFULNESS (0.0 to 1.0): does the answer use ONLY information "
         "from the context, without adding facts not found there? "
         "1.0 = fully grounded, 0.0 = hallucinated. "
         "Reply with a single decimal number only."
@@ -93,7 +82,7 @@ def score(
     precision = _ask(
         f"Question: {query}\n\n"
         f"Retrieved context:\n{ctx}\n\n"
-        "Rate CONTEXT PRECISION (0.0–1.0): how useful is this retrieved "
+        "Rate CONTEXT PRECISION (0.0 to 1.0): how useful is this retrieved "
         "context for answering the question? 1.0 = highly relevant, "
         "0.0 = useless noise. Reply with a single decimal number only."
     )

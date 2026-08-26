@@ -78,34 +78,20 @@ def dense_retrieve(query: str, k: int = TOP_K) -> list[dict]:
     return results
 
 
-def sparse_retrieve(query: str, k: int = TOP_K) -> list[dict]:
-    """Top-k BM25 retrieval — pure Python, no external service."""
-    from src.corpus import get_chunks
-
-    chunks = get_chunks()
-    bm25 = _get_bm25(chunks)
-
-    tokens = query.lower().split()
-    scores = bm25.get_scores(tokens)
-    top_indices = np.argsort(scores)[::-1][:k]
-
-    return [{**chunks[i], "score": float(scores[i])} for i in top_indices if scores[i] > 0]
-
-
 def hybrid_retrieve(query: str, k: int = TOP_K, alpha: float = HYBRID_ALPHA) -> list[dict]:
     """
     Combine dense and sparse scores via weighted sum.
     alpha=1.0 → pure dense, alpha=0.0 → pure sparse.
     Scores are min-max normalized before combining.
     """
-    from src.corpus import get_chunks
+    from src.corpus import get_chunks, get_index
 
     chunks = get_chunks()
     n = len(chunks)
 
     # Dense scores
     embedder = _get_embedder()
-    index = __import__("src.corpus", fromlist=["get_index"]).get_index()
+    index = get_index()
     q_vec = embedder.encode([query], normalize_embeddings=True).astype(np.float32)
     distances, indices = index.search(q_vec, k=n)
 

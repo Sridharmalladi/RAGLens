@@ -114,8 +114,8 @@ def prune_old(days: int = RETENTION_DAYS) -> int:
 
 def detect_drift(threshold: float, hours: int = 24) -> list[dict]:
     """
-    Return configs whose faithfulness dropped by `threshold` or more
-    compared to the prior 24-hour window.
+    Return (model, config) pairs whose average faithfulness dropped by
+    `threshold` or more against the prior window of the same length.
     """
     now = datetime.utcnow()
     recent_cutoff = (now - timedelta(hours=hours)).isoformat()
@@ -124,34 +124,36 @@ def detect_drift(threshold: float, hours: int = 24) -> list[dict]:
     with _conn() as con:
         recent = con.execute(
             """
-            SELECT config_id, config_name, AVG(faithfulness) as avg_f
+            SELECT model, config_id, config_name, AVG(faithfulness) as avg_f
             FROM runs WHERE timestamp >= ? AND faithfulness IS NOT NULL
-            GROUP BY config_id
+            GROUP BY model, config_id
             """,
             (recent_cutoff,),
         ).fetchall()
 
         prior = con.execute(
             """
-            SELECT config_id, AVG(faithfulness) as avg_f
+            SELECT model, config_id, AVG(faithfulness) as avg_f
             FROM runs WHERE timestamp >= ? AND timestamp < ? AND faithfulness IS NOT NULL
-            GROUP BY config_id
+            GROUP BY model, config_id
             """,
             (prior_cutoff, recent_cutoff),
         ).fetchall()
 
-    prior_map = {r["config_id"]: r["avg_f"] for r in prior}
+    prior_map = {(r["model"], r["config_id"]): r["avg_f"] for r in prior}
     alerts = []
     for r in recent:
-        cid = r["config_id"]
-        if cid in prior_map and prior_map[cid] is not None and r["avg_f"] is not None:
-            drop = prior_map[cid] - r["avg_f"]
+        key = (r["model"], r["config_id"])
+        prev = prior_map.get(key)
+        if prev is not None and r["avg_f"] is not None:
+            drop = prev - r["avg_f"]
             if drop >= threshold:
                 alerts.append({
-                    "config_id": cid,
+                    "model": r["model"],
+                    "config_id": r["config_id"],
                     "config_name": r["config_name"],
                     "drop": round(drop, 4),
                     "recent_avg": round(r["avg_f"], 4),
-                    "prior_avg": round(prior_map[cid], 4),
+                    "prior_avg": round(prev, 4),
                 })
     return alerts

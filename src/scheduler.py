@@ -1,10 +1,9 @@
 """
-APScheduler setup — runs monitoring.run_evaluation_cycle() on an hourly cron.
+APScheduler setup. Runs monitoring.run_evaluation_cycle() on a fixed interval.
 Call start() once at app startup.
 """
 
 import logging
-from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -21,7 +20,7 @@ def _job():
         run_evaluation_cycle()
     except Exception as e:
         logger.error("Monitoring job crashed: %s", e)
-        # APScheduler will retry on the next tick — no manual restart needed
+        # APScheduler retries on the next tick, no manual restart needed
 
 
 def start() -> BackgroundScheduler:
@@ -34,22 +33,13 @@ def start() -> BackgroundScheduler:
         _job,
         trigger=IntervalTrigger(hours=MONITORING_INTERVAL_HOURS),
         id="monitoring_cycle",
-        name="RAGLens hourly evaluation",
+        name="RAGLens scheduled evaluation",
         replace_existing=True,
         misfire_grace_time=300,  # allow up to 5 min late start
     )
     _scheduler.start()
-    logger.info("Scheduler started — monitoring runs every %dh", MONITORING_INTERVAL_HOURS)
+    logger.info("Scheduler started, monitoring runs every %dh", MONITORING_INTERVAL_HOURS)
     return _scheduler
-
-
-def trigger_now() -> None:
-    """Manually trigger one evaluation cycle — useful for testing."""
-    global _scheduler
-    if _scheduler:
-        _scheduler.modify_job("monitoring_cycle", next_run_time=datetime.utcnow())
-    else:
-        _job()
 
 
 def next_run_time() -> str | None:

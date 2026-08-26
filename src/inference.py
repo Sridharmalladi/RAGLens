@@ -1,7 +1,7 @@
 """
 User-facing inference path.
-Runs 4 RAG configs in parallel and yields results as they complete.
-Generation is via Groq API — no local models.
+Runs the 4 RAG configs for one model and yields results as they complete.
+Generation is via the OpenRouter API, no local models.
 NEVER writes to the monitoring database.
 """
 
@@ -77,7 +77,7 @@ def _error_result(config_id: int, message: str) -> dict:
 
 def run_all_configs(query: str, model: str | None = None, max_tokens: int | None = None) -> Generator[dict, None, None]:
     """Run 4 configs sequentially, yielding each result as it completes.
-    Sequential (not parallel) to stay within Groq's 6k TPM free-tier limit."""
+    Sequential rather than parallel to keep request rate within OpenRouter limits."""
     for config_id in range(1, 5):
         yield _run_config(config_id, query, model=model, max_tokens=max_tokens)
 

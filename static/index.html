@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Compare 4 RAG retrieval strategies side-by-side — dense, hybrid, and reranked — with live LLM-as-judge scoring." />
-  <title>RAGLens — Live RAG Benchmarking</title>
+  <meta name="description" content="Compare four RAG retrieval strategies side by side (dense, hybrid, and reranked) with live LLM-as-judge scoring." />
+  <title>RAGLens · Live RAG Benchmarking</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -19,7 +19,7 @@
       <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
       <path d="M12 2a10 10 0 0 1 10 10"/>
     </svg>
-    Backend warming up — this takes ~30s on a cold start. Hang tight.
+    Backend is warming up. A cold start takes about 30 seconds.
   </div>
 
   <!-- ── Nav ───────────────────────────────────────────────────────── -->
@@ -68,7 +68,7 @@
 
       <h1 class="hero-title">What does retrieval <span>actually change?</span></h1>
       <p class="hero-sub">
-        Run one question through four pipelines simultaneously — baseline, dense, hybrid, and reranked.
+        Run one question through four pipelines at once: baseline, dense, hybrid, and reranked.
         Answers stream in as they complete. Scores follow automatically.
       </p>
 
@@ -84,7 +84,7 @@
           <div class="pipe-row">
             <span class="pipe-id" style="color:var(--c1)">1 &nbsp;No RAG</span>
             <div class="pipe-steps">
-              <span class="pipe-step pipe-llm" data-tip="Groq's gpt-oss-20b generates the answer entirely from its training knowledge. No documents are retrieved so the quality depends on what the model already knows.">LLM</span>
+              <span class="pipe-step pipe-llm" data-tip="gpt-oss-20b, served through OpenRouter, generates the answer from its training knowledge alone. No documents are retrieved, so quality depends on what the model already knows.">LLM</span>
               <span class="pipe-out">answers from training data only</span>
             </div>
           </div>
@@ -93,7 +93,7 @@
             <div class="pipe-steps">
               <span class="pipe-step" data-tip="BGE-small-en-v1.5 encodes your query into a 384-dimensional vector that captures its meaning, not just its keywords.">BGE-small</span>
               <span class="pipe-arrow">›</span>
-              <span class="pipe-step" data-tip="FAISS scans all 1,665 chunk vectors and returns the ones geometrically closest to your query vector. Fast and surprisingly effective for semantic search.">FAISS L2</span>
+              <span class="pipe-step" data-tip="FAISS scans all 1,665 chunk vectors and returns the ones geometrically closest to your query vector. Fast, and effective for semantic search.">FAISS L2</span>
               <span class="pipe-arrow">›</span>
               <span class="pipe-step pipe-k" data-tip="Only the 3 highest scoring chunks are kept and passed as context to the LLM. More chunks means more noise, fewer means possibly missing the answer.">top-3</span>
               <span class="pipe-arrow">›</span>
@@ -129,45 +129,43 @@
             </div>
           </div>
           <div class="pipe-legend">
-            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> Groq gpt-oss-20b</span>
+            <span><span class="pipe-step pipe-llm" style="font-size:10px;padding:2px 6px">LLM</span> gpt-oss-20b via OpenRouter</span>
             <span><span class="pipe-step pipe-rerank" style="font-size:10px;padding:2px 6px">cross-encoder</span> BGE-reranker-base</span>
             <span><span class="pipe-step pipe-k" style="font-size:10px;padding:2px 6px">top-k</span> chunk count</span>
           </div>
         </div>
       </details>
 
-      <!-- Model selector -->
+      <!-- Model selector (pick one or more) -->
       <div class="control-row">
-        <span class="field-label">Model</span>
-        <div class="model-tabs">
-          <button class="model-tab active" data-model="openai/gpt-oss-20b" onclick="selectModel(this)">
-            gpt-oss-20b <span class="model-tag">fast</span>
-          </button>
-          <button class="model-tab" data-model="openai/gpt-oss-120b" onclick="selectModel(this)">
-            gpt-oss-120b <span class="model-tag">capable</span>
-          </button>
-        </div>
+        <span class="field-label">Models</span>
+        <div class="model-tabs" id="model-picker"></div>
+        <span class="picker-hint" id="picker-hint"></span>
       </div>
 
       <!-- Suggested queries -->
-      <div class="chips-row">
-        <button class="chip" onclick="setQuery(this)">How does hybrid retrieval combine dense and sparse search?</button>
-        <button class="chip" onclick="setQuery(this)">What evaluation metrics matter most for production RAG?</button>
-        <button class="chip" onclick="setQuery(this)">When does fine-tuning beat better retrieval?</button>
+      <div class="chips-head">
+        <span class="field-label">Try one</span>
+        <button class="chip-shuffle" id="chip-shuffle" onclick="shuffleSuggestions()" title="Show a different set">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 3h5v5"/><path d="M21 3l-8 8"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M3 4l6 6"/>
+          </svg>
+          Shuffle
+        </button>
       </div>
+      <div class="chips-row" id="suggestion-chips"></div>
 
       <!-- Query input -->
       <div class="query-box">
         <textarea
           id="query-input"
           class="query-textarea"
-          placeholder="Ask anything about RAG, retrieval, or LLM evaluation…"
+          placeholder="Ask anything about RAG, retrieval, or LLM evaluation"
           rows="2"
-          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runComparison();}"
         ></textarea>
         <button id="run-btn" class="run-btn" onclick="runComparison()">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l10 6-10 6V2z"/></svg>
-          Run 4 configs
+          Run comparison
         </button>
       </div>
     </div>
@@ -192,97 +190,7 @@
       </div>
     </div>
 
-    <div class="results-grid" id="results-grid">
-
-      <!-- Card 1 — No RAG -->
-      <div class="config-card" id="card-1" style="--cc:#6B7280">
-        <div class="card-header">
-          <span class="config-dot" style="background:#6B7280"></span>
-          <span class="config-name">No RAG</span>
-          <span class="config-sub">training data only</span>
-          <div class="card-header-right">
-            <span class="latency-pill" id="latency-1"></span>
-            <button class="copy-btn" id="copy-1" onclick="copyAnswer(1)" title="Copy answer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <span class="card-status" id="status-1"></span>
-          </div>
-        </div>
-        <div class="card-answer" id="answer-1">
-          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
-        </div>
-        <button class="expand-btn" id="expand-1" onclick="toggleExpand(1)" style="display:none">Show more</button>
-        <div class="card-scores" id="scores-1"></div>
-        <div class="card-sources" id="sources-1"></div>
-      </div>
-
-      <!-- Card 2 — Dense RAG -->
-      <div class="config-card" id="card-2" style="--cc:#60A5FA">
-        <div class="card-header">
-          <span class="config-dot" style="background:#60A5FA"></span>
-          <span class="config-name">Dense RAG</span>
-          <span class="config-sub">BGE-small · FAISS</span>
-          <div class="card-header-right">
-            <span class="latency-pill" id="latency-2"></span>
-            <button class="copy-btn" id="copy-2" onclick="copyAnswer(2)" title="Copy answer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <span class="card-status" id="status-2"></span>
-          </div>
-        </div>
-        <div class="card-answer" id="answer-2">
-          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
-        </div>
-        <button class="expand-btn" id="expand-2" onclick="toggleExpand(2)" style="display:none">Show more</button>
-        <div class="card-scores" id="scores-2"></div>
-        <div class="card-sources" id="sources-2"></div>
-      </div>
-
-      <!-- Card 3 — Hybrid RAG -->
-      <div class="config-card" id="card-3" style="--cc:#FBBF24">
-        <div class="card-header">
-          <span class="config-dot" style="background:#FBBF24"></span>
-          <span class="config-name">Hybrid RAG</span>
-          <span class="config-sub">Dense + BM25</span>
-          <div class="card-header-right">
-            <span class="latency-pill" id="latency-3"></span>
-            <button class="copy-btn" id="copy-3" onclick="copyAnswer(3)" title="Copy answer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <span class="card-status" id="status-3"></span>
-          </div>
-        </div>
-        <div class="card-answer" id="answer-3">
-          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
-        </div>
-        <button class="expand-btn" id="expand-3" onclick="toggleExpand(3)" style="display:none">Show more</button>
-        <div class="card-scores" id="scores-3"></div>
-        <div class="card-sources" id="sources-3"></div>
-      </div>
-
-      <!-- Card 4 — Hybrid + Rerank -->
-      <div class="config-card" id="card-4" style="--cc:#34D399">
-        <div class="card-header">
-          <span class="config-dot" style="background:#34D399"></span>
-          <span class="config-name">Hybrid + Rerank</span>
-          <span class="config-sub">+ cross-encoder</span>
-          <div class="card-header-right">
-            <span class="latency-pill" id="latency-4"></span>
-            <button class="copy-btn" id="copy-4" onclick="copyAnswer(4)" title="Copy answer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <span class="card-status" id="status-4"></span>
-          </div>
-        </div>
-        <div class="card-answer" id="answer-4">
-          <div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div>
-        </div>
-        <button class="expand-btn" id="expand-4" onclick="toggleExpand(4)" style="display:none">Show more</button>
-        <div class="card-scores" id="scores-4"></div>
-        <div class="card-sources" id="sources-4"></div>
-      </div>
-
-    </div>
+    <div id="results-groups"></div>
   </section>
 
   <!-- ── Monitoring ─────────────────────────────────────────────────── -->
@@ -292,7 +200,7 @@
       <div class="monitoring-header">
         <div>
           <h2 class="monitoring-title">Performance over time</h2>
-          <p class="monitoring-sub">Background job runs every 6 h — 3 fixed probe queries across all 4 configs, scored and logged automatically.</p>
+          <p class="monitoring-sub">A background job runs every 6 hours. It sends 3 fixed probe queries through all 4 configs on every model, then scores and logs each result so trends stay comparable across models.</p>
         </div>
         <div class="monitoring-meta">
           <div class="meta-pair">
@@ -315,32 +223,42 @@
 
       <div class="drift-banner" id="drift-banner" style="display:none"></div>
 
+      <div class="mon-models" id="mon-models"></div>
+
       <div class="charts-grid">
         <div class="chart-wrap">
           <div class="chart-label">
             <span class="chart-title">Faithfulness</span>
-            <span class="chart-note">Configs 2–4 · grounded in retrieved context</span>
+            <span class="chart-note">Configs 2 to 4 · grounded in retrieved context</span>
           </div>
           <canvas id="chart-faithfulness"></canvas>
         </div>
         <div class="chart-wrap">
           <div class="chart-label">
-            <span class="chart-title">Answer Relevancy</span>
+            <span class="chart-title">Answer relevancy</span>
             <span class="chart-note">All configs · how well the answer addresses the question</span>
           </div>
           <canvas id="chart-relevancy"></canvas>
         </div>
         <div class="chart-wrap chart-latency">
           <div class="chart-label">
-            <span class="chart-title">Response Latency</span>
+            <span class="chart-title">Response latency</span>
             <span class="chart-note">All configs · seconds per query</span>
           </div>
           <canvas id="chart-latency"></canvas>
         </div>
       </div>
 
+      <div class="latest-wrap" id="latest-wrap" style="display:none">
+        <div class="chart-label">
+          <span class="chart-title">Latest scores</span>
+          <span class="chart-note">Most recent value for each model and config</span>
+        </div>
+        <div class="latest-matrix" id="latest-matrix"></div>
+      </div>
+
       <p class="no-data" id="no-data-msg" style="display:none">
-        No monitoring data yet — the first evaluation run completes within 6 hours.
+        No monitoring data yet. The first evaluation run completes within 6 hours.
       </p>
 
     </div>
@@ -348,7 +266,7 @@
 
   <!-- ── Footer ────────────────────────────────────────────────────── -->
   <footer class="footer">
-    BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; Groq gpt-oss-20b &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
+    BGE-small-en-v1.5 &nbsp;·&nbsp; FAISS IndexFlatL2 &nbsp;·&nbsp; BM25 (rank-bm25) &nbsp;·&nbsp; BGE-reranker-base &nbsp;·&nbsp; OpenRouter gpt-oss-20b &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; SQLite
   </footer>
 
   <script src="/app.js"></script>

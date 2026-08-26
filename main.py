@@ -19,6 +19,20 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from config import (
+    APP_TITLE,
+    CORPUS_DESCRIPTION,
+    AVAILABLE_MODELS,
+    MODEL_IDS,
+    MODEL_LABELS,
+    DEFAULT_MODEL,
+    MAX_COMPARE_MODELS,
+    SUGGESTED_QUERIES,
+    CONFIG_COLORS,
+    CONFIG_NAMES,
+    DRIFT_ALERT_THRESHOLD,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
@@ -28,6 +42,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub.utils._http").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+_ALLOWED_MODELS = set(MODEL_IDS)
 
 
 def _warmup_models():
@@ -44,7 +60,7 @@ def _warmup_models():
         from src.retrieval import _get_embedder, _get_reranker
         _get_embedder()
         _get_reranker()
-        logger.info("Warmup complete — corpus + models ready")
+        logger.info("Warmup complete, corpus and models ready")
     except Exception as e:
         logger.warning("Warmup failed (will init on first request): %s", e)
 
@@ -76,28 +92,53 @@ app.add_middleware(
 # API routes
 # ---------------------------------------------------------------------------
 
-ALLOWED_MODELS = {
-    "openai/gpt-oss-20b",
-    "openai/gpt-oss-120b",
-}
-
-
 class QueryRequest(BaseModel):
     query: str
-    model: str | None = None  # falls back to GROQ_GENERATION_MODEL if omitted
+    models: list[str] | None = None    # one comparison per model, in this order
+    model: str | None = None           # legacy single-model field, still accepted
+
+
+def _resolve_models(request: QueryRequest) -> list[str]:
+    """Pick the models to run: requested list, then legacy field, then default.
+    Filtered to known slugs, de-duplicated in order, capped."""
+    requested = list(request.models or [])
+    if request.model:
+        requested.append(request.model)
+
+    seen: list[str] = []
+    for m in requested:
+        if m in _ALLOWED_MODELS and m not in seen:
+            seen.append(m)
+    if not seen:
+        seen = [DEFAULT_MODEL]
+    return seen[:MAX_COMPARE_MODELS]
 
 
 async def _sse_error(msg: str):
     yield f'data: {json.dumps({"error": msg})}\n\n'
 
 
+@app.get("/api/config")
+async def app_config():
+    """Everything the frontend needs to render its controls."""
+    return {
+        "title": APP_TITLE,
+        "corpus": CORPUS_DESCRIPTION,
+        "models": AVAILABLE_MODELS,
+        "default_model": DEFAULT_MODEL,
+        "max_models": MAX_COMPARE_MODELS,
+        "suggestions": SUGGESTED_QUERIES,
+    }
+
+
 @app.post("/api/compare")
 async def compare(request: QueryRequest):
-    """Stream 4 RAG config results as Server-Sent Events, then score events."""
+    """Stream 4 RAG config results per selected model as Server-Sent Events,
+    then stream a score event for each answer."""
     from src.corpus import is_ready
 
     query = request.query.strip()
-    model = request.model if request.model in ALLOWED_MODELS else None
+    models = _resolve_models(request)
 
     if not query:
         return StreamingResponse(_sse_error("Empty query"), media_type="text/event-stream")
@@ -108,45 +149,56 @@ async def compare(request: QueryRequest):
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
+    def _put(item):
+        asyncio.run_coroutine_threadsafe(queue.put(item), loop)
+
     def _run_sync():
         from src.inference import run_all_configs
         from src.evaluation import score as eval_score, scoring_available
 
-        # Phase 1 — stream answers as they complete
-        all_results = []
-        for result in run_all_configs(query, model=model):
-            contexts = result.get("context_chunks") or []
-            payload = {k: v for k, v in result.items() if k != "context_chunks"}
-            payload["scores"] = {}
-            asyncio.run_coroutine_threadsafe(queue.put(payload), loop)
-            all_results.append((result, contexts))
+        can_score = scoring_available()
 
-        # Phase 2 — score each config and stream score events
-        if scoring_available():
-            for result, contexts in all_results:
+        def _worker(model: str):
+            # One model at a time internally (rate-friendly), but models run
+            # in parallel so a slow model does not hold up the others.
+            pending = []  # (result, contexts)
+            for result in run_all_configs(query, model=model):
+                contexts = result.get("context_chunks") or []
+                payload = {k: v for k, v in result.items() if k != "context_chunks"}
+                payload["model"] = model
+                payload["scores"] = {}
+                _put(payload)
+                pending.append((result, contexts))
+
+            if not can_score:
+                return
+            for result, contexts in pending:
                 answer = result.get("answer") or ""
                 if answer and not answer.startswith("["):
-                    s = eval_score(query, answer, contexts)
-                    asyncio.run_coroutine_threadsafe(
-                        queue.put({
-                            "type": "score",
-                            "config_id": result["config_id"],
-                            "scores": s,
-                        }),
-                        loop,
-                    )
+                    _put({
+                        "type": "score",
+                        "model": model,
+                        "config_id": result["config_id"],
+                        "scores": eval_score(query, answer, contexts),
+                    })
 
-        asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+        workers = [threading.Thread(target=_worker, args=(m,), daemon=True) for m in models]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        _put(None)
 
     threading.Thread(target=_run_sync, daemon=True).start()
 
     async def _stream():
+        # Tell the client which models are running, and in what order
+        yield f'data: {json.dumps({"type": "start", "models": models})}\n\n'
         while True:
             result = await asyncio.wait_for(queue.get(), timeout=300)
             if result is None:
                 break
-            # Don't send full chunk text to frontend — keep payload small
-            result.pop("context_chunks", None)
+            result.pop("context_chunks", None)  # keep the payload small
             yield f"data: {json.dumps(result)}\n\n"
 
     return StreamingResponse(
@@ -161,22 +213,23 @@ async def monitoring():
     from collections import defaultdict
     from src.storage import read_recent, detect_drift, read_last_run_time
     from src.scheduler import next_run_time
-    from config import DRIFT_ALERT_THRESHOLD, CONFIG_COLORS, CONFIG_NAMES
 
     rows = read_recent(days=7)
     alerts = detect_drift(threshold=DRIFT_ALERT_THRESHOLD)
 
-    # Group rows by (config_id, hour-slot) so each monitoring run → one averaged point
+    # One averaged point per (model, config, hour-slot)
     groups: dict[tuple, list] = defaultdict(list)
     for row in rows:
         hour_slot = row["timestamp"][:13]  # "YYYY-MM-DDTHH"
-        groups[(row["config_id"], hour_slot)].append(row)
+        groups[(row["model"], row["config_id"], hour_slot)].append(row)
 
-    # Build per-config series sorted by time
-    config_map: dict[int, dict] = {}
-    for (config_id, hour_slot), grp in groups.items():
-        if config_id not in config_map:
-            config_map[config_id] = {
+    series_map: dict[tuple, dict] = {}
+    for (model, config_id, hour_slot), grp in groups.items():
+        key = (model, config_id)
+        if key not in series_map:
+            series_map[key] = {
+                "model": model,
+                "model_label": MODEL_LABELS.get(model, model),
                 "config_id": config_id,
                 "config_name": CONFIG_NAMES.get(config_id, f"Config {config_id}"),
                 "color": CONFIG_COLORS.get(config_id, "#818CF8"),
@@ -186,7 +239,7 @@ async def monitoring():
         rels   = [r["answer_relevancy"] for r in grp if r.get("answer_relevancy") is not None]
         precs  = [r["context_precision"] for r in grp if r.get("context_precision") is not None]
         lats   = [r["latency_s"] for r in grp]
-        config_map[config_id]["points"].append({
+        series_map[key]["points"].append({
             "ts":                hour_slot.replace("T", " ") + ":00",
             "faithfulness":      round(sum(faiths) / len(faiths), 4) if faiths else None,
             "answer_relevancy":  round(sum(rels)   / len(rels),   4) if rels   else None,
@@ -194,11 +247,17 @@ async def monitoring():
             "latency":           round(sum(lats)   / len(lats),   3) if lats   else None,
         })
 
-    for s in config_map.values():
+    for s in series_map.values():
         s["points"].sort(key=lambda p: p["ts"])
 
+    models_present = sorted(
+        {(s["model"], s["model_label"]) for s in series_map.values()},
+        key=lambda t: t[1],
+    )
+
     return {
-        "series": sorted(config_map.values(), key=lambda s: s["config_id"]),
+        "series": sorted(series_map.values(), key=lambda s: (s["model_label"], s["config_id"])),
+        "models": [{"id": mid, "label": label} for mid, label in models_present],
         "alerts": alerts,
         "last_run": read_last_run_time(),
         "next_run": next_run_time(),
