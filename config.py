@@ -4,8 +4,12 @@ import os
 # Models the UI offers and the monitoring job exercises. `id` is the OpenRouter
 # slug; `label` is what the UI shows; `tag` is a short hint next to the label.
 AVAILABLE_MODELS = [
-    {"id": "openai/gpt-oss-20b",  "label": "gpt-oss-20b",  "tag": "fast"},
-    {"id": "openai/gpt-oss-120b", "label": "gpt-oss-120b", "tag": "capable"},
+    {"id": "openai/gpt-oss-20b",                        "label": "gpt-oss-20b",           "tag": "fast"},
+    {"id": "openai/gpt-oss-120b",                       "label": "gpt-oss-120b",          "tag": "capable"},
+    {"id": "google/gemini-2.5-flash-lite",              "label": "gemini-2.5-flash-lite", "tag": "fast"},
+    {"id": "mistralai/mistral-small-24b-instruct-2501", "label": "mistral-small-24b",     "tag": "lean"},
+    {"id": "meta-llama/llama-3.3-70b-instruct",         "label": "llama-3.3-70b",         "tag": "open"},
+    {"id": "anthropic/claude-haiku-4.5",                "label": "claude-haiku-4.5",      "tag": "premium"},
 ]
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 MAX_COMPARE_MODELS = 3  # cap on how many models one live comparison runs at once
@@ -38,12 +42,13 @@ JUDGE_MODEL = "openai/gpt-oss-20b"
 MONITORING_INTERVAL_HOURS = 6
 RETENTION_DAYS = 30
 DRIFT_ALERT_THRESHOLD = 0.10
-MONITORING_MAX_TOKENS = 400  # shorter answers during scheduled eval to conserve credit budget
+MONITORING_MAX_TOKENS = 500  # shorter answers during scheduled eval to conserve credit budget
 SCORING_CONTEXT_CHARS = 300  # truncate each chunk before sending to judge to cut input tokens
 
 # Every scheduled cycle runs each query through all 4 configs for each of these
 # models, so the performance charts can be compared across models over time.
-MONITORING_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
+# Kept small and cheap since it runs unattended every few hours.
+MONITORING_MODELS = ["openai/gpt-oss-20b", "google/gemini-2.5-flash-lite"]
 
 MONITORING_QUERIES = [
     "What are the main differences between dense and sparse retrieval?",
