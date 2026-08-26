@@ -46,13 +46,18 @@ JUDGE_MODEL = "openai/gpt-oss-20b"
 MONITORING_INTERVAL_HOURS = 8
 RETENTION_DAYS = 30
 DRIFT_ALERT_THRESHOLD = 0.10
-MONITORING_MAX_TOKENS = 200   # terse answers during the scheduled job, trend only
-SCORING_CONTEXT_CHARS = 200   # truncate each chunk before it goes to the judge
+MONITORING_MAX_TOKENS = 300   # terse answers during the scheduled job, trend only
+SCORING_CONTEXT_CHARS = 350   # per-chunk cap for the judge's copy of the context;
+                              # too low and every answer looks "unfaithful"
 
 # Every scheduled cycle runs each probe query through all 4 configs for each of
 # these models, so the charts stay comparable across models. Deliberately small:
-# 2 models x 2 queries x 4 configs, cheap models, once every 8 hours.
-MONITORING_MODELS = ["openai/gpt-oss-20b", "google/gemini-2.5-flash-lite"]
+# 2 models x 2 queries x 4 configs, once every 8 hours.
+# Both are OpenAI's own open-weight models: no shared-pool rate limits, and they
+# answer sensibly at a tight token cap. Third-party slugs on OpenRouter's free
+# provider pools (mistral-small, gemini-flash-lite) 429 too often for an
+# unattended job, so they stay in the picker only.
+MONITORING_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 
 # Kept on-corpus so faithfulness is a meaningful signal for the trend.
 MONITORING_QUERIES = [
