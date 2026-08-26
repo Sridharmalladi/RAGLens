@@ -1,5 +1,6 @@
 .venv/
 .git/
+.github/
 .claude/
 __pycache__/
 *.py[cod]

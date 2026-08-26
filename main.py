@@ -67,11 +67,22 @@ def _warmup_models():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import os
     from src.storage import init_db
     from src.scheduler import start as start_scheduler
 
     init_db()
-    start_scheduler()
+
+    # The background evaluation job only makes sense where one instance stays
+    # alive between its runs. On a scale-to-zero host (Cloud Run) each cold start
+    # would re-trigger a full cycle against a fresh empty DB and burn tokens, so
+    # set ENABLE_SCHEDULER=0 there and rely on the /api/monitoring history that
+    # a longer-lived deployment builds up.
+    if os.environ.get("ENABLE_SCHEDULER", "1") != "0":
+        start_scheduler()
+    else:
+        logger.info("Scheduler disabled (ENABLE_SCHEDULER=0)")
+
     threading.Thread(target=_warmup_models, daemon=True).start()
     logger.info("RAGLens started")
     yield

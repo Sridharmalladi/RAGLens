@@ -4,7 +4,8 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     TOKENIZERS_PARALLELISM=false \
-    HF_HOME=/app/.cache/huggingface
+    HF_HOME=/app/.cache/huggingface \
+    HF_HUB_OFFLINE=0
 
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends git \
@@ -17,9 +18,15 @@ RUN pip install --no-cache-dir torch \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-compile all installed packages to .pyc bytecode.
-# Eliminates the 15-19s Python parse time on cold start so HF's
-# health check gets a response before it times out.
+# Bake the retrieval models into the image so cold starts do not spend time or
+# memory downloading ~1.2 GB from the HF CDN. Matters on scale-to-zero hosts
+# (Cloud Run) where the filesystem is memory-backed.
+RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; \
+    SentenceTransformer('BAAI/bge-small-en-v1.5'); \
+    CrossEncoder('BAAI/bge-reranker-base')"
+
+# Pre-compile installed packages to .pyc so the first request is not blocked on
+# Python parse time.
 RUN python -m compileall -q /usr/local/lib/python3.11/site-packages 2>/dev/null || true
 
 COPY . .
@@ -29,5 +36,8 @@ RUN python -m compileall -q . 2>/dev/null || true
 RUN useradd -m -u 1000 user && chown -R user:user /app
 USER user
 
+# Listen on $PORT when the platform sets it (Cloud Run uses 8080), otherwise
+# 7860 for Hugging Face Spaces, which reads app_port from README.md.
+ENV PORT=7860
 EXPOSE 7860
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]
