@@ -1,0 +1,25 @@
+name: Sync to Hugging Face Space
+
+# GitHub is the source of truth. Every push to main is mirrored to the Space.
+# Do not edit files in the HF web UI: the next push here overwrites them.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push --force \
+            "https://Malladi05:${HF_TOKEN}@huggingface.co/spaces/Malladi05/RagLens" \
+            HEAD:main
