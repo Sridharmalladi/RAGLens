@@ -18,10 +18,20 @@ let suggestionPool = [];       // full question pool from the backend
 
 let _answers = {};             // `${mi}-${cid}` -> full answer text
 let _scoreMap = {};            // `${mi}-${cid}` -> scores object
+let _chunks = {};             // `${mi}-${cid}` -> retrieved chunk list
+let _pool = {};               // `${mi}-${cid}` -> rerank pool (config 4)
+let _latency = {};            // `${mi}-${cid}` -> seconds
+let _pinned = [];             // up to 2 card keys pinned for the answer diff
+let _lastQuery = '';
+let _lastRunAt = null;
 
 let _monitorData = null;
 let _charts = {};
 let _hiddenModels = new Set();  // monitoring model ids toggled off
+
+// Retrieval score label per config. Config 2 reports raw L2 distance (lower is
+// closer); 3 a normalised 0–1 hybrid score; 4 a cross-encoder rerank score.
+const SCORE_LABEL = { 2: 'L2', 3: 'hybrid', 4: 'rerank' };
 
 // ── Theme ─────────────────────────────────────────────────────────────
 function _resolveTheme() {
@@ -153,6 +163,10 @@ const COPY_SVG =
   '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
   '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 
+const PIN_SVG =
+  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+  '<rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/></svg>';
+
 function _cardHTML(mi, c) {
   const k = `${mi}-${c.id}`;
   return `
@@ -163,6 +177,7 @@ function _cardHTML(mi, c) {
         <span class="config-sub">${c.sub}</span>
         <div class="card-header-right">
           <span class="latency-pill" id="latency-${k}"></span>
+          <button class="pin-btn" id="pin-${k}" title="Pin for answer diff (max 2)">${PIN_SVG}</button>
           <button class="copy-btn" id="copy-${k}" title="Copy answer">${COPY_SVG}</button>
           <span class="card-status" id="status-${k}"></span>
         </div>
@@ -173,6 +188,7 @@ function _cardHTML(mi, c) {
       <button class="expand-btn" id="expand-${k}" style="display:none">Show more</button>
       <div class="card-scores" id="scores-${k}"></div>
       <div class="card-sources" id="sources-${k}"></div>
+      <div class="card-context" id="context-${k}"></div>
     </div>`;
 }
 
@@ -203,8 +219,15 @@ function buildGroups(models) {
       const k = `${mi}-${c.id}`;
       document.getElementById(`copy-${k}`).onclick = () => copyAnswer(k);
       document.getElementById(`expand-${k}`).onclick = () => toggleExpand(k);
+      document.getElementById(`pin-${k}`).onclick = () => togglePin(k);
     });
   });
+
+  // fresh DOM: drop any pins and hide the derived panels
+  _pinned = [];
+  _renderDiff();
+  const vd = document.getElementById('run-verdict');
+  if (vd) { vd.style.display = 'none'; vd.innerHTML = ''; }
 }
 
 // ── Answer expand / collapse ──────────────────────────────────────────
@@ -266,10 +289,22 @@ function renderResult(result) {
     return;
   }
 
+  _latency[k] = result.latency;
+  _chunks[k] = result.chunks || [];
+  _pool[k] = result.rerank_pool || [];
+
   if (result.latency != null) {
     const lp = document.getElementById(`latency-${k}`);
     lp.textContent = result.latency.toFixed(2) + 's';
     lp.className = 'latency-pill visible';
+  }
+
+  const costEl = document.getElementById(`cost-${k}`);
+  if (costEl) costEl.outerHTML = '';
+  const costText = _fmtCost(result.tokens, result.cost);
+  if (costText) {
+    document.getElementById(`latency-${k}`).insertAdjacentHTML(
+      'afterend', `<span class="cost-pill" id="cost-${k}">${costText}</span>`);
   }
 
   const answerEl = document.getElementById(`answer-${k}`);
@@ -290,9 +325,71 @@ function renderResult(result) {
     ).join('');
   }
 
+  _renderContext(k, result.config_id);
+  _syncPins();
+
   const scoresEl = document.getElementById(`scores-${k}`);
   if (!scoresEl.innerHTML.trim()) {
     scoresEl.innerHTML = `<span class="score-pending">Scoring…</span>`;
+  }
+}
+
+// ── Cost / token pill ────────────────────────────────────────────────
+function _fmtCost(tokens, cost) {
+  const bits = [];
+  const t = tokens || {};
+  const tot = (t.prompt_tokens || 0) + (t.completion_tokens || 0);
+  if (tot > 0) bits.push(tot >= 1000 ? (tot / 1000).toFixed(1) + 'k tok' : tot + ' tok');
+  if (cost != null && cost > 0) {
+    bits.push(cost < 0.01 ? '$' + cost.toFixed(4) : '$' + cost.toFixed(3));
+  }
+  return bits.join(' · ');
+}
+
+// ── Retrieved-context inspector ──────────────────────────────────────
+function _fmtScore(v) {
+  if (v == null || isNaN(v)) return '–';
+  return Math.abs(v) < 10 ? v.toFixed(3) : v.toFixed(1);
+}
+
+function _renderContext(k, cid) {
+  const host = document.getElementById(`context-${k}`);
+  if (!host) return;
+  const chunks = _chunks[k] || [];
+  const pool = _pool[k] || [];
+  if (!chunks.length && !pool.length) { host.innerHTML = ''; return; }
+
+  const label = SCORE_LABEL[cid] || 'score';
+  const scoreKey = cid === 4 ? 'rerank_score' : 'retrieval_score';
+
+  const row = (c, i, isPool) => {
+    const sc = isPool ? c.rerank_score : c[scoreKey];
+    const kept = isPool ? !!c.kept : true;
+    const txt = c.text || '';
+    return `<div class="ctx-row${kept ? '' : ' ctx-drop'}">
+      <span class="ctx-rank">${i + 1}</span>
+      <div class="ctx-body">
+        <div class="ctx-meta">
+          <span class="ctx-src" title="${_esc(c.source || '?')}">${_esc(c.source || '?')}</span>
+          <span class="ctx-score">${label} ${_fmtScore(sc)}</span>
+          ${isPool ? `<span class="ctx-tag ${kept ? 'keep' : 'drop'}">${kept ? 'kept' : 'dropped'}</span>` : ''}
+        </div>
+        <div class="ctx-text">${_esc(txt)}${txt.length >= 598 ? '…' : ''}</div>
+      </div>
+    </div>`;
+  };
+
+  if (cid === 4 && pool.length) {
+    const keptN = pool.filter(c => c.kept).length;
+    host.innerHTML = `<details class="ctx">
+      <summary>Rerank pool · ${pool.length} candidates, ${keptN} kept</summary>
+      <div class="ctx-list">${pool.map((c, i) => row(c, i, true)).join('')}</div>
+    </details>`;
+  } else {
+    host.innerHTML = `<details class="ctx">
+      <summary>Retrieved context · ${chunks.length} chunk${chunks.length === 1 ? '' : 's'}</summary>
+      <div class="ctx-list">${chunks.map((c, i) => row(c, i, false)).join('')}</div>
+    </details>`;
   }
 }
 
@@ -313,24 +410,101 @@ function updateScores(event) {
     ['context_precision', 'Precision'],
   ];
 
+  const reasons = scores.reasons || {};
+
   const rows = METRICS
     .filter(([f]) => scores[f] != null)
     .map(([f, label]) => {
       const v = scores[f];
       const pct = Math.round(v * 100);
       const col = v >= 0.75 ? 'var(--green)' : v >= 0.5 ? 'var(--amber)' : 'var(--red)';
+      const why = reasons[f]
+        ? `<div class="metric-reason">${_esc(reasons[f])}</div>` : '';
       return `<div class="metric-row">
         <span class="metric-label">${label}</span>
         <div class="metric-track"><div class="metric-fill" style="width:${pct}%;background:${col}"></div></div>
         <span class="metric-val" style="color:${col}">${v.toFixed(2)}</span>
-      </div>`;
+      </div>${why}`;
     });
 
-  el.innerHTML = rows.length
+  const ungrounded = (scores.unsupported || []).length
+    ? `<div class="ungrounded-note">
+         <span class="ug-head">Not grounded in retrieved context</span>
+         <ul>${scores.unsupported.map(s => `<li>${_esc(s)}</li>`).join('')}</ul>
+       </div>`
+    : '';
+
+  el.innerHTML = (rows.length
     ? rows.join('')
-    : `<span class="score-note">No retrieval, so faithfulness does not apply</span>`;
+    : `<span class="score-note">No retrieval, so faithfulness does not apply</span>`
+  ) + ungrounded;
 
   _highlightBest(mi);  // idempotent; only paints once the whole group is scored
+  _maybeRenderVerdict();
+}
+
+// ── Post-run verdict strip ──────────────────────────────────────────
+function _avgScore(s) {
+  if (!s) return null;
+  const v = [s.faithfulness, s.answer_relevancy, s.context_precision].filter(x => x != null);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+function _verdictForModel(mi, mid) {
+  let bestId = -1, bestAvg = -1;
+  for (const c of CONFIGS) {
+    const a = _avgScore(_scoreMap[`${mi}-${c.id}`]);
+    if (a != null && a > bestAvg) { bestAvg = a; bestId = c.id; }
+  }
+  if (bestId < 1) return null;
+
+  const base = _avgScore(_scoreMap[`${mi}-1`]);
+  const bestC = CONFIGS.find(c => c.id === bestId);
+
+  let fastId = -1, fastLat = Infinity, latSum = 0, latN = 0;
+  for (const c of CONFIGS) {
+    const l = _latency[`${mi}-${c.id}`];
+    if (l == null) continue;
+    latSum += l; latN++;
+    if (l < fastLat) { fastLat = l; fastId = c.id; }
+  }
+
+  return {
+    modelLabel: _modelMeta(mid).label,
+    bestName: bestC.name, bestColor: bestC.color, bestAvg,
+    delta: base != null ? bestAvg - base : null,
+    fastName: (CONFIGS.find(c => c.id === fastId) || {}).name || '–',
+    fastLat: isFinite(fastLat) ? fastLat : 0,
+    avgLat: latN ? latSum / latN : 0,
+  };
+}
+
+function _maybeRenderVerdict() {
+  const host = document.getElementById('run-verdict');
+  if (!host || !runModels.length) return;
+  if (Object.keys(_scoreMap).length < runModels.length * NUM_CONFIGS) return;
+
+  const cards = runModels.map((mid, mi) => _verdictForModel(mi, mid)).filter(Boolean);
+  if (!cards.length) { host.style.display = 'none'; return; }
+
+  let overall = '';
+  if (cards.length > 1) {
+    const top = cards.slice().sort((a, b) => b.bestAvg - a.bestAvg)[0];
+    overall = `<div class="vd-overall">Strongest overall — <b>${_esc(top.modelLabel)}</b> · ${_esc(top.bestName)} at ${top.bestAvg.toFixed(2)} avg</div>`;
+  }
+
+  host.innerHTML = overall + `<div class="vd-grid">` + cards.map(c => {
+    const d = c.delta;
+    const deltaHtml = d == null ? ''
+      : `<div class="vd-delta ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '+' : ''}${d.toFixed(2)} vs No RAG</div>`;
+    return `<div class="vd-card" style="--cc:${c.bestColor}">
+      <div class="vd-model">${_esc(c.modelLabel)}</div>
+      <div class="vd-line"><span class="vd-win">${_esc(c.bestName)}</span> wins · <span class="vd-avg">${c.bestAvg.toFixed(2)} avg</span></div>
+      ${deltaHtml}
+      <div class="vd-lat">fastest ${_esc(c.fastName)} ${c.fastLat.toFixed(2)}s · avg ${c.avgLat.toFixed(2)}s</div>
+    </div>`;
+  }).join('') + `</div>`;
+  host.style.display = 'block';
 }
 
 // ── Lightweight markdown renderer ─────────────────────────────────────
@@ -418,6 +592,154 @@ function _highlightBest(mi) {
   card.querySelector('.card-header-right').prepend(badge);
 }
 
+// ── Pin two cards, diff their answers ───────────────────────────────
+function _syncPins() {
+  document.querySelectorAll('.config-card').forEach(card => {
+    const k = card.id.replace('card-', '');
+    const on = _pinned.includes(k);
+    card.classList.toggle('pin-on', on);
+    document.getElementById(`pin-${k}`)?.classList.toggle('pinned', on);
+  });
+}
+
+function togglePin(k) {
+  const i = _pinned.indexOf(k);
+  if (i >= 0) _pinned.splice(i, 1);
+  else {
+    if (_pinned.length >= 2) _pinned.shift();
+    _pinned.push(k);
+  }
+  _syncPins();
+  _renderDiff();
+}
+
+function clearPins() {
+  _pinned = [];
+  _syncPins();
+  _renderDiff();
+}
+
+function _kLabel(k) {
+  const [mi, cid] = k.split('-').map(Number);
+  const c = CONFIGS.find(x => x.id === cid);
+  return `${c ? c.name : 'Config ' + cid} · ${_modelMeta(runModels[mi]).label}`;
+}
+
+// LCS word diff. Tokens keep their trailing whitespace so output re-spaces.
+function _wordDiff(aStr, bStr) {
+  const cap = 1200;
+  const a = String(aStr).split(/(\s+)/).slice(0, cap);
+  const b = String(bStr).split(/(\s+)/).slice(0, cap);
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+
+  const out = [];
+  const push = (tag, s) => { if (s) out.push(tag ? `<${tag}>${_esc(s)}</${tag}>` : _esc(s)); };
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { push('', a[i]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { push('del', a[i]); i++; }
+    else { push('ins', b[j]); j++; }
+  }
+  while (i < n) push('del', a[i++]);
+  while (j < m) push('ins', b[j++]);
+  return out.join('');
+}
+
+function _renderDiff() {
+  const panel = document.getElementById('diff-panel');
+  if (!panel) return;
+  if (_pinned.length < 2) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  const [ka, kb] = _pinned;
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div class="diff-head">
+      <span class="diff-title">Answer diff</span>
+      <span class="diff-legend"><del>${_esc(_kLabel(ka))}</del> <ins>${_esc(_kLabel(kb))}</ins></span>
+      <button class="diff-close" onclick="clearPins()">Clear</button>
+    </div>
+    <div class="diff-body">${_wordDiff(_answers[ka] || '', _answers[kb] || '')}</div>`;
+}
+
+// ── Export the run ─────────────────────────────────────────────────
+function _download(name, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function _buildJSON() {
+  return {
+    query: _lastQuery,
+    ran_at: _lastRunAt,
+    models: runModels,
+    results: runModels.flatMap((mid, mi) => CONFIGS.map(c => {
+      const k = `${mi}-${c.id}`;
+      return {
+        model: mid,
+        config_id: c.id,
+        config_name: c.name,
+        answer: _answers[k] || null,
+        latency_s: _latency[k] ?? null,
+        scores: _scoreMap[k] || null,
+        chunks: _chunks[k] || [],
+        rerank_pool: _pool[k] || [],
+      };
+    })),
+    verdict: runModels.map((mid, mi) => _verdictForModel(mi, mid)).filter(Boolean),
+  };
+}
+
+function _buildMarkdown() {
+  const L = [];
+  L.push(`# RAGLens run`, '');
+  L.push(`**Query:** ${_lastQuery}`);
+  L.push(`**When:** ${_lastRunAt}`);
+  L.push(`**Models:** ${runModels.join(', ')}`, '');
+
+  runModels.forEach((mid, mi) => {
+    const v = _verdictForModel(mi, mid);
+    L.push(`## ${_modelMeta(mid).label}`, '');
+    if (v) {
+      const d = v.delta == null ? '' : ` (${v.delta >= 0 ? '+' : ''}${v.delta.toFixed(2)} vs No RAG)`;
+      L.push(`**Verdict:** ${v.bestName} wins at ${v.bestAvg.toFixed(2)} avg${d}. Fastest ${v.fastName} ${v.fastLat.toFixed(2)}s, avg ${v.avgLat.toFixed(2)}s.`, '');
+    }
+    CONFIGS.forEach(c => {
+      const k = `${mi}-${c.id}`;
+      const s = _scoreMap[k] || {};
+      L.push(`### ${c.name} — ${c.sub}`);
+      if (_latency[k] != null) L.push(`- Latency: ${_latency[k].toFixed(2)}s`);
+      const sc = ['faithfulness', 'answer_relevancy', 'context_precision']
+        .filter(f => s[f] != null)
+        .map(f => `${f} ${s[f].toFixed(2)}${s.reasons && s.reasons[f] ? ` (${s.reasons[f]})` : ''}`);
+      if (sc.length) L.push(`- Scores: ${sc.join(' · ')}`);
+      if ((s.unsupported || []).length) {
+        L.push(`- Not grounded in context:`);
+        s.unsupported.forEach(u => L.push(`  - ${u}`));
+      }
+      const srcs = [...new Set((_chunks[k] || []).map(x => x.source).filter(Boolean))];
+      if (srcs.length) L.push(`- Sources: ${srcs.join(', ')}`);
+      L.push('', (_answers[k] || '_(no answer)_').trim(), '');
+    });
+  });
+  return L.join('\n');
+}
+
+function exportRun() {
+  if (!runModels.length || !_lastRunAt) return;
+  const stamp = _lastRunAt.replace(/[:.]/g, '-');
+  _download(`raglens-${stamp}.md`, _buildMarkdown(), 'text/markdown');
+  _download(`raglens-${stamp}.json`, JSON.stringify(_buildJSON(), null, 2), 'application/json');
+}
+
 // ── Main comparison runner ────────────────────────────────────────────
 async function runComparison() {
   const query = document.getElementById('query-input').value.trim();
@@ -426,6 +748,10 @@ async function runComparison() {
 
   runModels = selectedModels.slice();
   _answers = {}; _scoreMap = {};
+  _chunks = {}; _pool = {}; _latency = {}; _pinned = [];
+  _lastQuery = query;
+  _lastRunAt = new Date().toISOString();
+  document.getElementById('export-btn').style.display = 'inline-flex';
 
   const btn = document.getElementById('run-btn');
   btn.disabled = true;

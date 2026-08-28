@@ -36,9 +36,11 @@ Your query ──► No RAG          ──► answer  score
            ──► Hybrid + Rerank ──► answer  score
 ```
 
-Each result arrives as it finishes (SSE streaming). Each answer is scored by an LLM judge on faithfulness, relevancy, and context precision, with no ground truth required.
+Each result arrives as it finishes (SSE streaming). Each answer is scored by an LLM judge on faithfulness, relevancy, and context precision, with no ground truth required, and the judge returns a one-line reason for every score plus any answer sentences it could not ground in the retrieved context.
 
 Pick one model or several. Each selected model runs the full set of 4 configs, and the results stack in their own labelled group so you can read a model against a model, config for config. The suggested prompts are drawn from a pool and reshuffle after every run.
+
+Every card is inspectable: expand it to see the exact chunks retrieval fed the model (config 4 shows the full rerank pool with which candidates survived), the token count and OpenRouter cost of the call, and the judge's reasoning. Once a run is scored a verdict strip names the winning config per model and its delta versus No RAG. Pin any two cards for a word-level answer diff, and export the whole run as Markdown + JSON.
 
 ---
 
@@ -47,7 +49,8 @@ Pick one model or several. Each selected model runs the full set of 4 configs, a
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Browser (SSE)                            │
-│          Query ──────────────────────► Cards render live        │
+│   Query ──► Cards render live ──► context inspector · cost ·    │
+│             judge reasons · verdict strip · answer diff · export │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ POST /api/compare
 ┌───────────────────────────▼─────────────────────────────────────┐
@@ -76,9 +79,10 @@ Pick one model or several. Each selected model runs the full set of 4 configs, a
                                                                           │
                                                     ┌─────────────────────▼──────┐
                                                     │   LLM-as-Judge (OpenRouter)│
-                                                    │   faithfulness  [0–1]      │
-                                                    │   answer_relevancy [0–1]   │
+                                                    │   faithfulness  [0–1] +why │
+                                                    │   answer_relevancy [0–1]+why│
                                                     │   context_precision [0–1]  │
+                                                    │   + ungrounded sentences   │
                                                     └─────────────────────┬──────┘
                                                                           │
                                                ┌──────────────────────────▼──────┐
@@ -99,6 +103,8 @@ Pick one model or several. Each selected model runs the full set of 4 configs, a
 | 3 | **Hybrid RAG** | Dense + BM25 (α=0.5) | Technical terms + semantic concepts together. |
 | 4 | **Hybrid + Rerank** | Hybrid → BGE cross-encoder | Highest precision. Best for production. |
 
+The context inspector on each card lists the retrieved chunks with their retrieval scores; for config 4 it shows all six hybrid candidates ranked by the cross-encoder, marking the two that were kept and the four that were dropped.
+
 ---
 
 ## Evaluation Metrics
@@ -109,7 +115,7 @@ Pick one model or several. Each selected model runs the full set of 4 configs, a
 | **Answer Relevancy** | Does the answer actually address the question? | 1, 2, 3, 4 |
 | **Context Precision** | Was the retrieved context useful noise-free? | 2, 3, 4 |
 
-Scored automatically through OpenRouter (no labelled data needed).
+Scored automatically through OpenRouter (no labelled data needed). One judge call per answer returns all three scores, a short reason for each, and a list of answer sentences not supported by the retrieved passages. The scheduled monitoring job asks only for faithfulness and relevancy to keep its token use minimal.
 
 ---
 

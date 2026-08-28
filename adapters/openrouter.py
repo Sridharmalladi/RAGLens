@@ -55,6 +55,21 @@ def _client(timeout: float):
     )
 
 
+def _extract_usage(resp) -> dict:
+    """Pull token counts and, when OpenRouter includes it, the request cost
+    (USD) off the response. `cost` arrives as an extra field on the usage
+    object only when the call sets usage.include=true."""
+    u = getattr(resp, "usage", None)
+    if not u:
+        return {"prompt_tokens": None, "completion_tokens": None, "cost": None}
+    extra = getattr(u, "model_extra", None) or {}
+    return {
+        "prompt_tokens": getattr(u, "prompt_tokens", None),
+        "completion_tokens": getattr(u, "completion_tokens", None),
+        "cost": getattr(u, "cost", None) if getattr(u, "cost", None) is not None else extra.get("cost"),
+    }
+
+
 def complete(
     messages: list[dict],
     model: str,
@@ -63,9 +78,14 @@ def complete(
     timeout: float = 30.0,
     retries: int = 1,
     reasoning_effort: str | None = "low",
-) -> str:
+    return_usage: bool = False,
+):
     """
     Send a chat completion and return the message text.
+
+    With `return_usage=True`, return `(text, usage)` where `usage` is
+    `{prompt_tokens, completion_tokens, cost}` (cost in USD, or None). The
+    default return is just the text string, so existing callers are unchanged.
 
     Retries on a rate-limit error up to `retries` times, honouring any
     retry-after hint in the error. Other errors propagate to the caller
@@ -79,6 +99,8 @@ def complete(
 
     client = _client(timeout)
     extra_body = {"reasoning": {"effort": reasoning_effort}} if reasoning_effort else {}
+    if return_usage:
+        extra_body["usage"] = {"include": True}
 
     attempt = 0
     while True:
@@ -90,7 +112,8 @@ def complete(
                 max_tokens=max_tokens,
                 extra_body=extra_body,
             )
-            return (resp.choices[0].message.content or "").strip()
+            text = (resp.choices[0].message.content or "").strip()
+            return (text, _extract_usage(resp)) if return_usage else text
         except RateLimitError as exc:
             attempt += 1
             if attempt > retries:

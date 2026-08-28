@@ -64,15 +64,61 @@ def _parse(text: str, keys: tuple[str, ...]) -> dict:
     return out
 
 
+# judge-key -> the key the rest of the app uses
+_REASON_KEYMAP = {
+    "faithfulness": "faithfulness",
+    "relevancy": "answer_relevancy",
+    "precision": "context_precision",
+}
+
+
+def _parse_reasons(text: str) -> dict:
+    """Pull the '<metric>: <words>' rationale lines the judge writes after the
+    score line. The score line uses '=', so a ':' match skips it; a numeric-only
+    value is ignored too, in case the model drifts from the format."""
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"\s*[-*]?\s*(faithfulness|relevancy|precision)\s*:\s*(.+)", line, re.I)
+        if not m:
+            continue
+        val = m.group(2).strip().strip("-–—").strip()
+        if not re.search(r"[A-Za-z]{3}", val):  # just a number / punctuation
+            continue
+        out[_REASON_KEYMAP[m.group(1).lower()]] = val[:160]
+    return out
+
+
+def _parse_unsupported(text: str) -> list[str]:
+    """Collect the 'UNSUPPORTED: <sentence>' lines the judge adds when a claim
+    in the answer is not backed by the passages. 'none' and empty lines drop."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"\s*[-*]?\s*UNSUPPORTED\s*:\s*(.+)", line, re.I)
+        if not m:
+            continue
+        val = m.group(1).strip().strip("-–—\"'").strip()
+        if not val or val.lower() in ("none", "n/a", "(none)"):
+            continue
+        if not re.search(r"[A-Za-z]{3}", val):
+            continue
+        out.append(val[:200])
+        if len(out) >= 6:
+            break
+    return out
+
+
 def score(
     query: str,
     answer: str,
     contexts: list[str] | None = None,
     full: bool = True,
+    explain: bool = False,
 ) -> dict:
     """
     Score one answer with a single judge call.
     `full=False` skips context_precision (used by the scheduled job).
+    `explain=True` asks the judge for a short reason per metric and returns
+    them under a `reasons` dict (used by user-facing runs, not the scheduler).
     Returns the three metric keys; values are floats in [0,1] or None.
     """
     if not _check_available() or not answer:
@@ -82,18 +128,24 @@ def score(
 
     # No retrieval: relevancy is the only meaningful axis.
     if not contexts:
-        text = _judge(
+        prompt = (
             f"Question: {query}\n\nAnswer: {answer}\n\n"
-            "Score from 0.00 to 1.00 how well the answer addresses the question. "
-            "Reply with just the number.",
-            max_tokens=60,
+            "Score from 0.00 to 1.00 how well the answer addresses the question.\n"
         )
+        prompt += (
+            "Reply on two lines:\nscore=<n>\nrelevancy: <=12-word reason"
+            if explain else "Reply with just the number."
+        )
+        text = _judge(prompt, max_tokens=90 if explain else 60) or ""
         rel = None
-        if text:
-            m = re.search(_NUM, text)
-            if m:
-                rel = _clamp(m.group(1))
-        return {"faithfulness": None, "answer_relevancy": rel, "context_precision": None}
+        m = re.search(_NUM, text)
+        if m:
+            rel = _clamp(m.group(1))
+        reasons = _parse_reasons(text) if explain else {}
+        return {
+            "faithfulness": None, "answer_relevancy": rel, "context_precision": None,
+            "reasons": reasons,
+        }
 
     from config import SCORING_CONTEXT_CHARS
     ctx = "\n\n".join(
@@ -116,17 +168,28 @@ def score(
         )
         fmt = "faithfulness=<n> relevancy=<n>"
 
+    tail = f"First line, nothing else:\n{fmt}"
+    if explain:
+        reason_keys = "\n".join(f"{k}: <=12-word reason" for k in keys)
+        tail += (
+            f"\nThen one line per metric:\n{reason_keys}"
+            "\nThen list any answer sentences not supported by the passages, one "
+            "per line as 'UNSUPPORTED: <sentence>'. If all supported, write "
+            "'UNSUPPORTED: none'."
+        )
+
     text = _judge(
         f"Question: {query}\n\nAnswer: {answer}\n\nContext passages:\n{ctx}\n\n"
-        f"Score each from 0.00 to 1.00:\n{rubric}\n"
-        f"Reply on one line, nothing else:\n{fmt}",
-        max_tokens=200,
+        f"Score each from 0.00 to 1.00:\n{rubric}\n{tail}",
+        max_tokens=340 if explain else 200,
     )
     parsed = _parse(text or "", keys)
     return {
         "faithfulness": parsed.get("faithfulness"),
         "answer_relevancy": parsed.get("relevancy"),
         "context_precision": parsed.get("precision"),
+        "reasons": _parse_reasons(text or "") if explain else {},
+        "unsupported": _parse_unsupported(text or "") if explain else [],
     }
 
 
