@@ -20,6 +20,7 @@ def _run_config(config_id: int, query: str, model: str | None = None, max_tokens
 
     try:
         context_chunks: list[dict] = []
+        rerank_pool: list[dict] = []
 
         if config_id == 1:
             context = None
@@ -34,13 +35,26 @@ def _run_config(config_id: int, query: str, model: str | None = None, max_tokens
 
         elif config_id == 4:
             candidates = hybrid_retrieve(query, k=TOP_K * 2)
-            context_chunks = rerank(query, candidates, top_n=RERANK_TOP_N)
+            # Score every candidate, keep the full ordering so the UI can show
+            # what the reranker promoted and what it dropped.
+            ranked = rerank(query, candidates, top_n=len(candidates))
+            context_chunks = ranked[:RERANK_TOP_N]
             context = _chunks_to_context(context_chunks)
+            rerank_pool = [
+                {
+                    "text": c["text"],
+                    "source": c.get("source", "?"),
+                    "rerank_score": c.get("rerank_score"),
+                    "hybrid_score": c.get("score"),
+                    "kept": i < RERANK_TOP_N,
+                }
+                for i, c in enumerate(ranked)
+            ]
 
         else:
             return _error_result(config_id, "Unknown config ID")
 
-        answer, latency = generate(query, context, model=model, max_tokens=max_tokens)
+        answer, latency, usage = generate(query, context, model=model, max_tokens=max_tokens)
 
         return {
             "config_id": config_id,
@@ -48,8 +62,19 @@ def _run_config(config_id: int, query: str, model: str | None = None, max_tokens
             "description": CONFIG_DESCRIPTIONS[config_id],
             "answer": answer,
             "latency": latency,
-            "context_chunks": [c["text"] for c in context_chunks],
-            "sources": list({c["source"] for c in context_chunks}),
+            "tokens": usage or None,
+            "cost": (usage or {}).get("cost"),
+            "chunks": [
+                {
+                    "text": c["text"],
+                    "source": c.get("source", "?"),
+                    "retrieval_score": c.get("score"),
+                    "rerank_score": c.get("rerank_score"),
+                }
+                for c in context_chunks
+            ],
+            "rerank_pool": rerank_pool,
+            "sources": list({c.get("source", "?") for c in context_chunks}),
             "error": None,
         }
 
@@ -73,7 +98,10 @@ def _error_result(config_id: int, message: str) -> dict:
         "description": CONFIG_DESCRIPTIONS.get(config_id, ""),
         "answer": None,
         "latency": 0.0,
-        "context_chunks": [],
+        "tokens": None,
+        "cost": None,
+        "chunks": [],
+        "rerank_pool": [],
         "sources": [],
         "error": message,
     }

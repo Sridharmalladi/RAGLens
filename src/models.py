@@ -22,14 +22,15 @@ def generate(
     context: str | None = None,
     model: str | None = None,
     max_tokens: int | None = None,
-) -> tuple[str, float]:
+) -> tuple[str, float, dict | None]:
     """
     Generate an answer via OpenRouter.
-    Returns (answer, latency_seconds).
+    Returns (answer, latency_seconds, usage) where usage is
+    {prompt_tokens, completion_tokens, cost} or None on any failure.
     Retries once on a rate limit, respecting any retry-after hint.
     """
     if not openrouter.api_key_present():
-        return "[OPENROUTER_API_KEY not set. Generation unavailable.]", 0.0
+        return "[OPENROUTER_API_KEY not set. Generation unavailable.]", 0.0, None
 
     chosen_model = model or OPENROUTER_GENERATION_MODEL
     user_msg = (
@@ -43,19 +44,20 @@ def generate(
 
     start = time.perf_counter()
     try:
-        answer = openrouter.complete(
+        answer, usage = openrouter.complete(
             messages,
             model=chosen_model,
             temperature=0.7,
             max_tokens=max_tokens or MAX_NEW_TOKENS,
             timeout=30.0,
+            return_usage=True,
         )
-        return answer, time.perf_counter() - start
+        return answer, time.perf_counter() - start, usage
     except Exception as exc:
         from openai import RateLimitError
 
         if isinstance(exc, RateLimitError):
             logger.error("Generation rate limited after retry: %s", exc)
-            return "[Rate limited. Please wait a moment and try again.]", 0.0
+            return "[Rate limited. Please wait a moment and try again.]", 0.0, None
         logger.error("OpenRouter generation failed: %s", exc)
-        return f"[Generation failed: {exc}]", 0.0
+        return f"[Generation failed: {exc}]", 0.0, None

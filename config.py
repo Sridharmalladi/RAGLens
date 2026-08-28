@@ -21,6 +21,12 @@ OPENROUTER_GENERATION_MODEL = DEFAULT_MODEL  # fallback when a request names no 
 MAX_NEW_TOKENS = 500
 CONTEXT_CHARS_PER_CHUNK = 1100  # trim each retrieved chunk before it goes to the model
 
+# Retrieved-context inspector. How much of each chunk, and how many chunks, the
+# /api/compare payload carries back to the browser so the UI can show what
+# retrieval actually fed the model. Kept small so the SSE frames stay light.
+CTX_PREVIEW_CHARS = 600
+CTX_MAX_CHUNKS = 6
+
 MODEL_IDS = [m["id"] for m in AVAILABLE_MODELS]
 MODEL_LABELS = {m["id"]: m["label"] for m in AVAILABLE_MODELS}
 

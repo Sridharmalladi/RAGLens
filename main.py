@@ -31,6 +31,8 @@ from config import (
     CONFIG_COLORS,
     CONFIG_NAMES,
     DRIFT_ALERT_THRESHOLD,
+    CTX_PREVIEW_CHARS,
+    CTX_MAX_CHUNKS,
 )
 
 logging.basicConfig(
@@ -169,28 +171,37 @@ async def compare(request: QueryRequest):
 
         can_score = scoring_available()
 
+        def _trim(chunks):
+            return [
+                {**c, "text": (c.get("text") or "")[:CTX_PREVIEW_CHARS]}
+                for c in (chunks or [])[:CTX_MAX_CHUNKS]
+            ]
+
         def _worker(model: str):
             # One model at a time internally (rate-friendly), but models run
             # in parallel so a slow model does not hold up the others.
-            pending = []  # (result, contexts)
+            pending = []  # (result, context_texts)
             for result in run_all_configs(query, model=model):
-                contexts = result.get("context_chunks") or []
-                payload = {k: v for k, v in result.items() if k != "context_chunks"}
+                chunks = result.get("chunks") or []
+                context_texts = [c.get("text", "") for c in chunks]
+                payload = {k: v for k, v in result.items() if k not in ("chunks", "rerank_pool")}
+                payload["chunks"] = _trim(chunks)
+                payload["rerank_pool"] = _trim(result.get("rerank_pool"))
                 payload["model"] = model
                 payload["scores"] = {}
                 _put(payload)
-                pending.append((result, contexts))
+                pending.append((result, context_texts))
 
             if not can_score:
                 return
-            for result, contexts in pending:
+            for result, context_texts in pending:
                 answer = result.get("answer") or ""
                 if answer and not answer.startswith("["):
                     _put({
                         "type": "score",
                         "model": model,
                         "config_id": result["config_id"],
-                        "scores": eval_score(query, answer, contexts),
+                        "scores": eval_score(query, answer, context_texts, explain=True),
                     })
 
         workers = [threading.Thread(target=_worker, args=(m,), daemon=True) for m in models]

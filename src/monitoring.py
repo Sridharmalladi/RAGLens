@@ -45,9 +45,10 @@ def run_evaluation_cycle() -> None:
 
                 try:
                     # full=False: skip context_precision, which no chart uses
+                    ctx_texts = [c["text"] for c in result.get("chunks", [])]
                     scores = score(
                         query, result.get("answer", ""),
-                        result.get("context_chunks", []), full=False,
+                        ctx_texts, full=False,
                     )
                 except Exception as e:
                     logger.error("Scoring failed for config %d: %s", config_id, e)
