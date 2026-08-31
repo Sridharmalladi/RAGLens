@@ -15,7 +15,7 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -33,6 +33,7 @@ from config import (
     DRIFT_ALERT_THRESHOLD,
     CTX_PREVIEW_CHARS,
     CTX_MAX_CHUNKS,
+    STREAM_RESPONSES,
 )
 
 logging.basicConfig(
@@ -49,16 +50,22 @@ _ALLOWED_MODELS = set(MODEL_IDS)
 
 
 def _warmup_models():
-    """Build FAISS index + load BGE models into memory at startup.
-    Runs in a daemon thread so the server is responsive immediately,
-    but all heavy work is done before the first user query arrives.
+    """Warm the corpus (and, on the local backend, the BGE models) at startup.
+    Runs in a daemon thread so the server is responsive immediately.
     """
     try:
-        # Trigger FAISS index build (or load from disk if already built)
-        from src.corpus import get_index, get_chunks
+        from config import RETRIEVAL_BACKEND
+        from src.corpus import get_chunks
         get_chunks()
+
+        if RETRIEVAL_BACKEND == "hosted":
+            from src.corpus import get_doc_matrix
+            get_doc_matrix()
+            logger.info("Warmup complete, corpus ready (hosted retrieval)")
+            return
+
+        from src.corpus import get_index
         get_index()
-        # Load embedding + reranker models into memory
         from src.retrieval import _get_embedder, _get_reranker
         _get_embedder()
         _get_reranker()
@@ -213,9 +220,23 @@ async def compare(request: QueryRequest):
 
     threading.Thread(target=_run_sync, daemon=True).start()
 
+    start_event = {"type": "start", "models": models}
+
+    # Non-streaming mode (STREAM_RESPONSES=0): collect every event and return one
+    # JSON body. For hosts whose Python runtime buffers streamed responses anyway.
+    if not STREAM_RESPONSES:
+        events = [start_event]
+        while True:
+            item = await asyncio.wait_for(queue.get(), timeout=300)
+            if item is None:
+                break
+            item.pop("context_chunks", None)
+            events.append(item)
+        return JSONResponse({"events": events})
+
     async def _stream():
         # Tell the client which models are running, and in what order
-        yield f'data: {json.dumps({"type": "start", "models": models})}\n\n'
+        yield f'data: {json.dumps(start_event)}\n\n'
         while True:
             result = await asyncio.wait_for(queue.get(), timeout=300)
             if result is None:
@@ -233,8 +254,12 @@ async def compare(request: QueryRequest):
 @app.get("/api/monitoring")
 async def monitoring():
     from collections import defaultdict
-    from src.storage import read_recent, detect_drift, read_last_run_time
+    from src.storage import read_recent, detect_drift, read_last_run_time, init_db
     from src.scheduler import next_run_time
+
+    # Serverless hosts may not run the lifespan startup, so the table might not
+    # exist yet. CREATE TABLE IF NOT EXISTS is cheap and idempotent.
+    init_db()
 
     rows = read_recent(days=7)
     alerts = detect_drift(threshold=DRIFT_ALERT_THRESHOLD)
@@ -296,7 +321,9 @@ async def health():
 # ---------------------------------------------------------------------------
 # Static frontend — must be last so API routes take priority
 # ---------------------------------------------------------------------------
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+import os as _os
+_STATIC_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "static")
+app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
 
 
 if __name__ == "__main__":

@@ -740,6 +740,23 @@ function exportRun() {
   _download(`raglens-${stamp}.json`, JSON.stringify(_buildJSON(), null, 2), 'application/json');
 }
 
+// One compare event (SSE frame or an entry from the JSON fallback body).
+function _dispatchCompareEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'start') {
+    if (Array.isArray(ev.models) && ev.models.length) {
+      runModels = ev.models;
+      buildGroups(runModels);
+    }
+  } else if (ev.error) {
+    throw new Error(ev.error);
+  } else if (ev.type === 'score') {
+    updateScores(ev);
+  } else {
+    renderResult(ev);
+  }
+}
+
 // ── Main comparison runner ────────────────────────────────────────────
 async function runComparison() {
   const query = document.getElementById('query-input').value.trim();
@@ -775,32 +792,26 @@ async function runComparison() {
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        let ev;
-        try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
-
-        if (ev.type === 'start') {
-          if (Array.isArray(ev.models) && ev.models.length) {
-            runModels = ev.models;
-            buildGroups(runModels);
-          }
-        } else if (ev.error) {
-          throw new Error(ev.error);
-        } else if (ev.type === 'score') {
-          updateScores(ev);
-        } else {
-          renderResult(ev);
+    // Non-streaming hosts (STREAM_RESPONSES=0) return one JSON blob of events.
+    const ctype = resp.headers.get('content-type') || '';
+    if (ctype.includes('application/json')) {
+      const body = await resp.json();
+      for (const ev of (body.events || [])) _dispatchCompareEvent(ev);
+    } else {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
+          _dispatchCompareEvent(ev);
         }
       }
     }

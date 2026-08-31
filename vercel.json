@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": [
+          "config.py",
+          "src/**",
+          "adapters/**",
+          "static/**",
+          "corpus/processed/chunks.json",
+          "corpus/embeddings.json"
+        ]
+      }
+    }
+  ],
+  "routes": [{ "src": "/(.*)", "dest": "api/index.py" }],
+  "env": {
+    "RETRIEVAL_BACKEND": "hosted",
+    "ENABLE_SCHEDULER": "0",
+    "STREAM_RESPONSES": "0",
+    "DB_PATH": "/tmp/raglens.db"
+  }
+}

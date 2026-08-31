@@ -1,0 +1,20 @@
+# Embeddings & retrieval
+# torch is installed by the Dockerfile directly from the CPU-only wheel index
+# (do NOT add torch here — it would pull the 2-3 GB CUDA build from PyPI)
+sentence-transformers>=3.1.0
+faiss-cpu>=1.8.0
+rank_bm25>=0.2.2
+
+# API server
+fastapi>=0.115.0
+uvicorn[standard]>=0.14.0
+python-multipart>=0.0.7
+
+# Scheduling & storage
+apscheduler>=3.10.0
+
+# OpenRouter — generation + LLM-as-judge scoring via its OpenAI-compatible API
+openai>=1.40.0
+
+# Env
+python-dotenv>=1.0.0
