@@ -166,3 +166,10 @@ CONFIG_COLORS = {
 
 APP_TITLE = "RAGLens · Live RAG Benchmarking"
 CORPUS_DESCRIPTION = "50 arXiv papers on RAG and LLM evaluation (1,665 chunks)"
+
+# Demo backfill for the trend charts. On a host with no persistent disk the real
+# scheduled job only ever lands one point before the DB is wiped, so with this
+# set the runs table is seeded with ~8 days of plausible history when empty.
+# Seeded rows are marked and the UI labels them "sample data".
+SEED_DEMO_DATA = os.environ.get("SEED_DEMO_DATA", "0").strip().lower() not in ("0", "false", "no", "")
+DEMO_MARKER = "[sample data]"

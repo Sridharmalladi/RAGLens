@@ -865,6 +865,8 @@ async function loadMonitoring() {
 
     const noData = document.getElementById('no-data-msg');
     const hasData = data.has_data && data.series && data.series.length;
+    const demoBadge = document.getElementById('demo-badge');
+    if (demoBadge) demoBadge.hidden = !(data.demo && hasData);
     document.getElementById('latest-wrap').style.display = hasData ? 'block' : 'none';
     if (!hasData) {
       noData.style.display = 'block';

@@ -23,6 +23,11 @@ services:
         value: "1"
       - key: DB_PATH
         value: /tmp/raglens.db
+      # No persistent disk on the free tier, so backfill ~8 days of plausible
+      # trend history when the DB is empty. Seeded rows are marked; the UI
+      # labels them "sample data". Real scheduled runs append unmarked.
+      - key: SEED_DEMO_DATA
+        value: "1"
       # Render keeps a persistent process, so SSE streaming works here.
       - key: STREAM_RESPONSES
         value: "1"

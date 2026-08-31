@@ -82,6 +82,14 @@ async def lifespan(app: FastAPI):
 
     init_db()
 
+    from config import SEED_DEMO_DATA
+    if SEED_DEMO_DATA:
+        try:
+            from src.seed_demo import seed_if_empty
+            seed_if_empty()
+        except Exception as e:
+            logger.warning("Demo seed failed: %s", e)
+
     # The background evaluation job only makes sense where one instance stays
     # alive between its runs. On a scale-to-zero host (Cloud Run) each cold start
     # would re-trigger a full cycle against a fresh empty DB and burn tokens, so
@@ -261,8 +269,17 @@ async def monitoring():
     # exist yet. CREATE TABLE IF NOT EXISTS is cheap and idempotent.
     init_db()
 
+    from config import SEED_DEMO_DATA, DEMO_MARKER
+    if SEED_DEMO_DATA:
+        try:
+            from src.seed_demo import seed_if_empty
+            seed_if_empty()  # no-op once the table has any run
+        except Exception as e:
+            logger.warning("Demo seed failed: %s", e)
+
     rows = read_recent(days=7)
     alerts = detect_drift(threshold=DRIFT_ALERT_THRESHOLD)
+    demo = any(r.get("query") == DEMO_MARKER for r in rows)
 
     # One averaged point per (model, config, hour-slot)
     groups: dict[tuple, list] = defaultdict(list)
@@ -309,6 +326,7 @@ async def monitoring():
         "last_run": read_last_run_time(),
         "next_run": next_run_time(),
         "has_data": bool(rows),
+        "demo": demo,
     }
 
 
