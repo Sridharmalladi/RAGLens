@@ -10,13 +10,16 @@ import logging
 import os
 import threading
 
-import faiss
 import numpy as np
+
+# faiss is only imported where it is used, so the "hosted" retrieval backend
+# (Vercel / Render) can run without it installed.
 
 logger = logging.getLogger(__name__)
 
-_index: faiss.Index | None = None
+_index = None                       # faiss.Index, local backend only
 _chunks: list[dict] | None = None
+_doc_matrix: np.ndarray | None = None   # (N, dim) L2-normalised, hosted backend
 _load_lock = threading.Lock()
 
 
@@ -32,10 +35,11 @@ def _load_precomputed_embeddings(embeddings_path: str) -> np.ndarray | None:
     return arr.reshape(payload["shape"])
 
 
-def _build_index(chunks: list[dict], index_path: str) -> faiss.Index:
-    """Build a flat L2 FAISS index from chunk embeddings.
+def _build_index(chunks: list[dict], index_path: str):
+    """Build a flat L2 FAISS index from chunk embeddings (local backend only).
     Uses pre-computed embeddings from corpus/embeddings.json when available
     (instant). Falls back to encoding with BGE-small if the file is missing."""
+    import faiss
     from config import EMBEDDINGS_PATH
 
     embeddings = _load_precomputed_embeddings(EMBEDDINGS_PATH)
@@ -61,46 +65,79 @@ def _build_index(chunks: list[dict], index_path: str) -> faiss.Index:
     return index
 
 
-def _load() -> tuple[faiss.Index, list[dict]]:
-    from config import FAISS_INDEX_PATH, CHUNKS_PATH
-
-    if not os.path.exists(CHUNKS_PATH):
-        raise FileNotFoundError(
-            f"Chunks file not found at {CHUNKS_PATH}. "
-            "Ensure corpus/processed/chunks.json is committed to the repo."
-        )
-
-    with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
-        chunks = json.load(f)
-
-    if os.path.exists(FAISS_INDEX_PATH):
-        index = faiss.read_index(FAISS_INDEX_PATH)
-        logger.info("Corpus loaded: %d chunks, FAISS index dim=%d", len(chunks), index.d)
-    else:
-        index = _build_index(chunks, FAISS_INDEX_PATH)
-
-    return index, chunks
+def _ensure_chunks() -> None:
+    global _chunks
+    if _chunks is not None:
+        return
+    from config import CHUNKS_PATH
+    with _load_lock:
+        if _chunks is not None:
+            return
+        if not os.path.exists(CHUNKS_PATH):
+            raise FileNotFoundError(
+                f"Chunks file not found at {CHUNKS_PATH}. "
+                "Ensure corpus/processed/chunks.json is committed to the repo."
+            )
+        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
+            _chunks = json.load(f)
+        logger.info("Corpus loaded: %d chunks", len(_chunks))
 
 
-def _ensure_loaded() -> None:
-    global _index, _chunks
-    if _index is None:
-        with _load_lock:
-            if _index is None:
-                _index, _chunks = _load()
+def _ensure_index() -> None:
+    global _index
+    if _index is not None:
+        return
+    import faiss
+    from config import FAISS_INDEX_PATH
+    _ensure_chunks()
+    with _load_lock:
+        if _index is not None:
+            return
+        if os.path.exists(FAISS_INDEX_PATH):
+            _index = faiss.read_index(FAISS_INDEX_PATH)
+            logger.info("FAISS index loaded (dim=%d)", _index.d)
+        else:
+            _index = _build_index(_chunks, FAISS_INDEX_PATH)
 
 
-def get_index() -> faiss.Index:
-    _ensure_loaded()
+def get_index():
+    _ensure_index()
     return _index
 
 
 def get_chunks() -> list[dict]:
-    _ensure_loaded()
+    _ensure_chunks()
     return _chunks
 
 
+def get_doc_matrix() -> np.ndarray:
+    """(N, dim) L2-normalised corpus vectors for the hosted backend's cosine
+    search. Reads the same corpus/embeddings.json the FAISS index is built from."""
+    global _doc_matrix
+    if _doc_matrix is not None:
+        return _doc_matrix
+    from config import EMBEDDINGS_PATH
+    _ensure_chunks()
+    with _load_lock:
+        if _doc_matrix is not None:
+            return _doc_matrix
+        emb = _load_precomputed_embeddings(EMBEDDINGS_PATH)
+        if emb is None:
+            raise RuntimeError(
+                "Hosted retrieval needs corpus/embeddings.json, which is missing."
+            )
+        emb = emb.astype(np.float32)
+        norms = np.linalg.norm(emb, axis=1, keepdims=True)
+        _doc_matrix = emb / np.clip(norms, 1e-9, None)
+        logger.info("Corpus matrix ready for hosted retrieval (%d x %d)", *_doc_matrix.shape)
+    return _doc_matrix
+
+
 def is_ready() -> bool:
-    """True as long as chunks.json exists — index will be built if missing."""
-    from config import CHUNKS_PATH
-    return os.path.exists(CHUNKS_PATH)
+    """Chunks present (local: FAISS builds on demand; hosted: needs embeddings.json too)."""
+    from config import CHUNKS_PATH, EMBEDDINGS_PATH, RETRIEVAL_BACKEND
+    if not os.path.exists(CHUNKS_PATH):
+        return False
+    if RETRIEVAL_BACKEND == "hosted":
+        return os.path.exists(EMBEDDINGS_PATH)
+    return True

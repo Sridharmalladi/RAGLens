@@ -15,8 +15,10 @@ RUN apt-get update && apt-get upgrade -y \
 RUN pip install --no-cache-dir torch \
         --index-url https://download.pytorch.org/whl/cpu
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# The Docker image runs the in-process BGE + FAISS backend, so it installs the
+# full dependency set (requirements.txt is the lighter hosted-retrieval one).
+COPY requirements-full.txt .
+RUN pip install --no-cache-dir -r requirements-full.txt
 
 # Bake the retrieval models into the image so cold starts do not spend time or
 # memory downloading ~1.2 GB from the HF CDN. Matters on scale-to-zero hosts
@@ -41,3 +43,4 @@ USER user
 ENV PORT=7860
 EXPOSE 7860
 CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+

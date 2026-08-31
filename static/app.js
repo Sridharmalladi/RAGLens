@@ -1,5 +1,11 @@
 'use strict';
 
+// Backend origin. Empty = same origin (app served by the FastAPI backend, e.g.
+// on Render). Set window.RAGLENS_API_BASE in static/config.js to an absolute
+// URL when the frontend is hosted separately (e.g. a Hugging Face Static Space).
+const API_BASE = (window.RAGLENS_API_BASE || '').replace(/\/+$/, '');
+const api = (path) => API_BASE + path;
+
 const ANSWER_CLAMP_CHARS = 340;
 
 // Config metadata the UI needs to build cards. Mirrors config.py CONFIG_*.
@@ -54,7 +60,7 @@ function toggleTheme() {
 // ── App config ────────────────────────────────────────────────────────
 async function loadConfig() {
   try {
-    const res = await fetch('/api/config');
+    const res = await fetch(api('/api/config'));
     CFG = await res.json();
   } catch (_) {
     CFG = {
@@ -740,6 +746,23 @@ function exportRun() {
   _download(`raglens-${stamp}.json`, JSON.stringify(_buildJSON(), null, 2), 'application/json');
 }
 
+// One compare event (SSE frame or an entry from the JSON fallback body).
+function _dispatchCompareEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'start') {
+    if (Array.isArray(ev.models) && ev.models.length) {
+      runModels = ev.models;
+      buildGroups(runModels);
+    }
+  } else if (ev.error) {
+    throw new Error(ev.error);
+  } else if (ev.type === 'score') {
+    updateScores(ev);
+  } else {
+    renderResult(ev);
+  }
+}
+
 // ── Main comparison runner ────────────────────────────────────────────
 async function runComparison() {
   const query = document.getElementById('query-input').value.trim();
@@ -768,39 +791,33 @@ async function runComparison() {
   document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
-    const resp = await fetch('/api/compare', {
+    const resp = await fetch(api('/api/compare'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, models: runModels }),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        let ev;
-        try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
-
-        if (ev.type === 'start') {
-          if (Array.isArray(ev.models) && ev.models.length) {
-            runModels = ev.models;
-            buildGroups(runModels);
-          }
-        } else if (ev.error) {
-          throw new Error(ev.error);
-        } else if (ev.type === 'score') {
-          updateScores(ev);
-        } else {
-          renderResult(ev);
+    // Non-streaming hosts (STREAM_RESPONSES=0) return one JSON blob of events.
+    const ctype = resp.headers.get('content-type') || '';
+    if (ctype.includes('application/json')) {
+      const body = await resp.json();
+      for (const ev of (body.events || [])) _dispatchCompareEvent(ev);
+    } else {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
+          _dispatchCompareEvent(ev);
         }
       }
     }
@@ -828,7 +845,7 @@ async function runComparison() {
 // ── Monitoring ────────────────────────────────────────────────────────
 async function loadMonitoring() {
   try {
-    const res = await fetch('/api/monitoring');
+    const res = await fetch(api('/api/monitoring'));
     const data = await res.json();
     _monitorData = data;
 
@@ -1040,7 +1057,7 @@ function _fmtAgo(iso) {
 // ── Warmup poller ─────────────────────────────────────────────────────
 async function _checkReady() {
   try {
-    const r = await fetch('/api/health');
+    const r = await fetch(api('/api/health'));
     const d = await r.json();
     return d.status === 'ok' && d.corpus_ready === true;
   } catch (_) { return false; }

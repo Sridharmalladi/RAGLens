@@ -39,11 +39,46 @@ TOP_K = 3
 RERANK_TOP_N = 2
 HYBRID_ALPHA = 0.5
 
-# Paths
-FAISS_INDEX_PATH = "corpus/index.faiss"
-CHUNKS_PATH = "corpus/processed/chunks.json"
-EMBEDDINGS_PATH = "corpus/embeddings.json"
-DB_PATH = os.environ.get("DB_PATH", "raglens.db")
+# ── Retrieval backend ──────────────────────────────────────────────────────
+# "local"  : sentence-transformers + FAISS in-process (needs requirements-full.txt,
+#            ~4 GB with torch; used by the Docker image / Hugging Face / a dev box).
+# "hosted" : query embedding + cross-encoder rerank via the Hugging Face Inference
+#            API, dense search is a numpy cosine over the committed corpus vectors,
+#            no torch / faiss (fits Vercel's 250 MB function and Render's 512 MB).
+# The corpus vectors in corpus/embeddings.json are BGE-small, and the hosted path
+# calls the same BGE-small model, so the two live in one space — no re-embedding.
+def _default_retrieval_backend() -> str:
+    override = os.environ.get("RETRIEVAL_BACKEND")
+    if override:
+        return override.strip().lower()
+    try:
+        import sentence_transformers  # noqa: F401
+        return "local"
+    except Exception:
+        return "hosted"
+
+RETRIEVAL_BACKEND = _default_retrieval_backend()
+
+# Hugging Face Inference API (used only when RETRIEVAL_BACKEND == "hosted").
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN") or os.environ.get("HF_TOKEN")
+HF_INFERENCE_BASE = os.environ.get(
+    "HF_INFERENCE_BASE", "https://router.huggingface.co/hf-inference/models"
+)
+HF_EMBED_MODEL = os.environ.get("HF_EMBED_MODEL", EMBEDDING_MODEL)
+HF_RERANK_MODEL = os.environ.get("HF_RERANK_MODEL", RERANKER_MODEL)
+
+# Server-Sent Events stream the four config results as they land. Some hosts
+# (Vercel's Python runtime) buffer the response body, which defeats the point;
+# set STREAM_RESPONSES=0 there and /api/compare returns one JSON blob instead.
+STREAM_RESPONSES = os.environ.get("STREAM_RESPONSES", "1").strip() not in ("0", "false", "no")
+
+# Paths — anchored to this file so they resolve no matter the working directory
+# (Vercel and some hosts do not run from the repo root).
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+FAISS_INDEX_PATH = os.path.join(_ROOT, "corpus", "index.faiss")
+CHUNKS_PATH = os.path.join(_ROOT, "corpus", "processed", "chunks.json")
+EMBEDDINGS_PATH = os.path.join(_ROOT, "corpus", "embeddings.json")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(_ROOT, "raglens.db"))
 
 # Evaluation judge (same OpenRouter key, different role)
 JUDGE_MODEL = "openai/gpt-oss-20b"

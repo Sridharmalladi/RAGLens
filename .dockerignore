@@ -17,3 +17,8 @@ tests/
 raglens.db
 corpus/raw/
 corpus/index.faiss
+node_modules/
+.vercel/
+vercel.json
+render.yaml
+api/

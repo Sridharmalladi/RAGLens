@@ -1,13 +1,3 @@
----
-title: RAGLens
-emoji: 🔍
-colorFrom: blue
-colorTo: purple
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 <div align="center">
 
 # RAGLens
@@ -18,7 +8,6 @@ pinned: false
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-gpt--oss-6467F2?style=flat-square)](https://openrouter.ai)
 [![FAISS](https://img.shields.io/badge/FAISS-Meta_AI-0467DF?style=flat-square)](https://github.com/facebookresearch/faiss)
-[![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FFD21E?style=flat-square)](https://huggingface.co/spaces/Malladi05/raglens)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
 
 </div>
@@ -123,20 +112,14 @@ Scored automatically through OpenRouter (no labelled data needed). One judge cal
 
 ```
 Generation    OpenRouter  ·  openai/gpt-oss-20b  ·  fast hosted inference
-Embeddings    BAAI/bge-small-en-v1.5  ·  384-dim  ·  ~130 MB
-Reranker      BAAI/bge-reranker-base  ·  cross-encoder
-Index         FAISS IndexFlatL2  ·  exact NN  ·  1,665 chunks
+Embeddings    BAAI/bge-small-en-v1.5  ·  384-dim  ·  in-process or HF Inference API
+Reranker      BAAI/bge-reranker-base  ·  cross-encoder  ·  in-process or HF Inference API
+Index         FAISS IndexFlatL2 (local)  ·  numpy cosine (hosted)  ·  1,665 chunks
 Keyword       rank-bm25  ·  pure Python  ·  no external service
-Backend       FastAPI  ·  SSE streaming  ·  SQLite
-Scheduler     APScheduler  ·  6-hour cycle  ·  per-model drift detection
+Backend       FastAPI  ·  SSE streaming (JSON fallback)  ·  SQLite
+Scheduler     APScheduler  ·  8-hour cycle  ·  per-model drift detection
 Corpus        50 arXiv papers  ·  RAG & LLM evaluation
 ```
-
----
-
-## Live Demo
-
-**[huggingface.co/spaces/Malladi05/raglens](https://huggingface.co/spaces/Malladi05/raglens)**
 
 ---
 
@@ -147,9 +130,10 @@ git clone https://github.com/Sridharmalladi/RAGLens
 cd RAGLens
 
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-full.txt   # in-process BGE + FAISS
+# or:  pip install -r requirements.txt  # lite: retrieval via HF Inference API
 
-cp .env.example .env        # paste your OpenRouter key
+cp .env.example .env        # paste your OpenRouter key (+ HF_TOKEN for lite)
 uvicorn main:app --reload --port 7860
 ```
 
@@ -159,14 +143,59 @@ Then open **http://localhost:7860**
 
 ---
 
+## Retrieval backends
+
+`RETRIEVAL_BACKEND` picks how dense retrieval and reranking run. Left unset it
+auto-detects: `local` when `sentence-transformers` is importable, else `hosted`.
+
+| | `local` | `hosted` |
+|---|---|---|
+| Deps | `requirements-full.txt` (torch, faiss, ~4 GB) | `requirements.txt` (~30 MB) |
+| Query embedding | in-process BGE-small | HF Inference API, BGE-small |
+| Dense search | FAISS `IndexFlatL2` | numpy cosine over `corpus/embeddings.json` |
+| Rerank | in-process cross-encoder | HF Inference API `text-ranking` |
+| Needs | — | `HF_TOKEN` (read scope) |
+
+Both call the **same** BGE-small model, so the committed corpus vectors work
+either way — no re-embedding.
+
+---
+
 ## Deployment
 
-Deployed on Hugging Face Spaces using Docker (`sdk: docker`).
+### Vercel (free)
 
-- Base image: `python:3.11-slim-bookworm`
-- CPU-only torch (no GPU needed)
-- BGE embeddings pre-computed and committed (`corpus/embeddings.json`), so the FAISS index builds in about 1 s at startup instead of 7+ min
-- All models (BGE-small, BGE-reranker) download once at container start via the warmup thread; a banner in the UI shows progress
+Serverless. `vercel.json` routes everything to `api/index.py`, installs
+`requirements.txt` (lite), and sets `RETRIEVAL_BACKEND=hosted`,
+`STREAM_RESPONSES=0` (Vercel buffers streams — cards land together, not
+progressively), `ENABLE_SCHEDULER=0`, `DB_PATH=/tmp/raglens.db`.
+
+Import the repo at [vercel.com/new](https://vercel.com/new), then add two env
+vars in the project settings:
+
+- `OPENROUTER_API_KEY`
+- `HF_TOKEN`
+
+### Render (free)
+
+`render.yaml` is a blueprint: web service, `requirements.txt` (lite), start
+`uvicorn main:app --host 0.0.0.0 --port $PORT`. SSE streaming works here.
+
+New + → Blueprint at [dashboard.render.com](https://dashboard.render.com), point
+it at the repo, set `OPENROUTER_API_KEY` and `HF_TOKEN` when prompted. Free
+instances sleep after 15 min idle (~40 s cold start).
+
+### Docker (`local` backend, full models)
+
+```bash
+docker build -t raglens .
+docker run -p 7860:7860 -e OPENROUTER_API_KEY=sk-or-... raglens
+```
+
+- Base image `python:3.11-slim-bookworm`, CPU-only torch, `requirements-full.txt`
+- BGE-small + BGE-reranker baked into the image; FAISS index builds from the
+  committed `corpus/embeddings.json` in ~1 s at startup
+- Listens on `$PORT` (Cloud Run) or 7860. See `DEPLOY_CLOUD_RUN.md`.
 
 ---
 

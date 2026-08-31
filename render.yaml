@@ -1,0 +1,28 @@
+# Render blueprint. Push this repo, then in the Render dashboard: New +
+# Blueprint, point it here, and set the two secret env vars (HF_TOKEN,
+# OPENROUTER_API_KEY) when prompted.
+services:
+  - type: web
+    name: raglens
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: RETRIEVAL_BACKEND
+        value: hosted
+      - key: ENABLE_SCHEDULER
+        value: "0"
+      - key: DB_PATH
+        value: /tmp/raglens.db
+      # Render keeps a persistent process, so SSE streaming works here.
+      - key: STREAM_RESPONSES
+        value: "1"
+      - key: HF_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
