@@ -1,5 +1,11 @@
 'use strict';
 
+// Backend origin. Empty = same origin (app served by the FastAPI backend, e.g.
+// on Render). Set window.RAGLENS_API_BASE in static/config.js to an absolute
+// URL when the frontend is hosted separately (e.g. a Hugging Face Static Space).
+const API_BASE = (window.RAGLENS_API_BASE || '').replace(/\/+$/, '');
+const api = (path) => API_BASE + path;
+
 const ANSWER_CLAMP_CHARS = 340;
 
 // Config metadata the UI needs to build cards. Mirrors config.py CONFIG_*.
@@ -54,7 +60,7 @@ function toggleTheme() {
 // ── App config ────────────────────────────────────────────────────────
 async function loadConfig() {
   try {
-    const res = await fetch('/api/config');
+    const res = await fetch(api('/api/config'));
     CFG = await res.json();
   } catch (_) {
     CFG = {
@@ -785,7 +791,7 @@ async function runComparison() {
   document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
-    const resp = await fetch('/api/compare', {
+    const resp = await fetch(api('/api/compare'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, models: runModels }),
@@ -839,7 +845,7 @@ async function runComparison() {
 // ── Monitoring ────────────────────────────────────────────────────────
 async function loadMonitoring() {
   try {
-    const res = await fetch('/api/monitoring');
+    const res = await fetch(api('/api/monitoring'));
     const data = await res.json();
     _monitorData = data;
 
@@ -1051,7 +1057,7 @@ function _fmtAgo(iso) {
 // ── Warmup poller ─────────────────────────────────────────────────────
 async function _checkReady() {
   try {
-    const r = await fetch('/api/health');
+    const r = await fetch(api('/api/health'));
     const d = await r.json();
     return d.status === 'ok' && d.corpus_ready === true;
   } catch (_) { return false; }
