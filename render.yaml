@@ -15,8 +15,12 @@ services:
         value: "3.11.9"
       - key: RETRIEVAL_BACKEND
         value: hosted
+      # On boot the scheduler runs one monitoring cycle ~2 min in (data is
+      # always stale — the free tier has no persistent disk, so /tmp/raglens.db
+      # resets whenever the instance sleeps). Enough to populate the trend
+      # charts for the current uptime; they do not survive a sleep.
       - key: ENABLE_SCHEDULER
-        value: "0"
+        value: "1"
       - key: DB_PATH
         value: /tmp/raglens.db
       # Render keeps a persistent process, so SSE streaming works here.
