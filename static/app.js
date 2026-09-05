@@ -1068,19 +1068,28 @@ async function _checkReady() {
 async function _initWarmup() {
   const banner = document.getElementById('warmup-banner');
   const btn = document.getElementById('run-btn');
-  if (await _checkReady()) return;
 
+  // Show the "waking up" state before the first readiness check, not after it.
+  // A sleeping free-tier backend (Render) can take 20-30s just to accept that
+  // first connection, so awaiting _checkReady() before showing anything left
+  // the page looking fully idle — and the Run button clickable — for the exact
+  // window where the app was actually unavailable.
   banner.style.display = 'flex';
   btn.disabled = true;
-  btn.title = 'Waiting for the backend';
+  btn.title = 'Waiting for the backend to wake up (free tier can take up to a minute)';
 
-  const iv = setInterval(async () => {
-    if (await _checkReady()) {
-      clearInterval(iv);
-      banner.style.display = 'none';
-      btn.disabled = false;
-      btn.title = '';
-    }
+  let iv = null;
+  const done = () => {
+    if (iv) clearInterval(iv);
+    banner.style.display = 'none';
+    btn.disabled = false;
+    btn.title = '';
+  };
+
+  if (await _checkReady()) { done(); return; }
+
+  iv = setInterval(async () => {
+    if (await _checkReady()) done();
   }, 3000);
 }
 
