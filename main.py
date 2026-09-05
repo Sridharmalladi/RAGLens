@@ -66,9 +66,10 @@ def _warmup_models():
 
         from src.corpus import get_index
         get_index()
-        from src.retrieval import _get_embedder, _get_reranker
+        from src.retrieval import _get_embedder, _get_reranker, _get_bm25
         _get_embedder()
         _get_reranker()
+        _get_bm25(get_chunks())
         logger.info("Warmup complete, corpus and models ready")
     except Exception as e:
         logger.warning("Warmup failed (will init on first request): %s", e)

@@ -134,10 +134,17 @@ def get_doc_matrix() -> np.ndarray:
 
 
 def is_ready() -> bool:
-    """Chunks present (local: FAISS builds on demand; hosted: needs embeddings.json too)."""
+    """Whether a query can run without blocking on a cold load. Hosted: chunks +
+    committed embeddings on disk. Local: that, plus the FAISS index and the BGE
+    embedder/reranker actually loaded into memory — checking only file presence
+    made the frontend show "ready" while the first query still paid for loading
+    the models synchronously, which is the exact stall this flag exists to hide."""
     from config import CHUNKS_PATH, EMBEDDINGS_PATH, RETRIEVAL_BACKEND
     if not os.path.exists(CHUNKS_PATH):
         return False
     if RETRIEVAL_BACKEND == "hosted":
         return os.path.exists(EMBEDDINGS_PATH)
-    return True
+    if _index is None:
+        return False
+    from src.retrieval import models_loaded
+    return models_loaded()

@@ -41,6 +41,11 @@ def _get_embedder():
     return _embedder
 
 
+def models_loaded() -> bool:
+    """True once the embedder and reranker are actually in memory (local backend)."""
+    return _embedder is not None and _reranker is not None
+
+
 def _get_reranker():
     global _reranker
     if _reranker is None:
